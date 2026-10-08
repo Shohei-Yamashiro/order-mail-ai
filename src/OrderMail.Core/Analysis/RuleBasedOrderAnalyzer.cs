@@ -38,7 +38,8 @@ public sealed partial class RuleBasedOrderAnalyzer : IOrderAnalyzer
 
     public string Name => "ルールベース";
 
-    public Task<OrderExtraction> AnalyzeAsync(MailInput mail, CancellationToken ct) => Task.FromResult(Analyze(mail));
+    public Task<OrderExtraction> AnalyzeAsync(MailInput mail, IReadOnlyList<AnalysisExample> examples, CancellationToken ct) =>
+        Task.FromResult(Analyze(mail));
 
     public static OrderExtraction Analyze(MailInput mail)
     {

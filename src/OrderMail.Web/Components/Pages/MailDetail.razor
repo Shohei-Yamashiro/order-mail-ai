@@ -112,6 +112,7 @@ else
                     <FluentButton Appearance="Appearance.Stealth" Disabled="_busy" OnClick="ReopenAsync">確認を取り消す</FluentButton>
                 }
             </div>
+            <p class="sub">確定した内容は、似たメールを AI が解析するときの手本と、設定画面の「評価」に使われます。</p>
 
             @if (_mail.Analyses.Count > 1)
             {

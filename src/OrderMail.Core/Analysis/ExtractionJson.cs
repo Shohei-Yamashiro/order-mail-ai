@@ -51,7 +51,9 @@ public static partial class ExtractionJson
         }
         """;
 
-    public static string Serialize(OrderExtraction e) => JsonSerializer.Serialize(new Dto
+    private static readonly JsonSerializerOptions CompactOptions = new(Options) { WriteIndented = false };
+
+    public static string Serialize(OrderExtraction e, bool indented = true) => JsonSerializer.Serialize(new Dto
     {
         IsOrder = e.IsOrder,
         Confidence = e.Confidence,
@@ -67,7 +69,7 @@ public static partial class ExtractionJson
             Unit = i.Unit,
             UnitPrice = i.UnitPrice,
         }).ToList(),
-    }, Options);
+    }, indented ? Options : CompactOptions);
 
     /// <exception cref="FormatException">The text does not contain a usable result.</exception>
     public static OrderExtraction Parse(string text)

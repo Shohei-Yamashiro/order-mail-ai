@@ -25,5 +25,7 @@ public sealed record OrderExtraction
 public interface IOrderAnalyzer
 {
     string Name { get; }
-    Task<OrderExtraction> AnalyzeAsync(MailInput mail, CancellationToken ct);
+
+    /// <param name="examples">Confirmed past mails; analyzers that cannot use them ignore them.</param>
+    Task<OrderExtraction> AnalyzeAsync(MailInput mail, IReadOnlyList<AnalysisExample> examples, CancellationToken ct);
 }

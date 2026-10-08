@@ -149,6 +149,92 @@ public sealed class ProcessingTests : IDisposable
         Assert.Equal(2, analyzed);
     }
 
+    private async Task<int> SampleIdAsync(string number)
+    {
+        await using var db = Db();
+        return await db.Mails.Where(m => m.MessageId.StartsWith($"sample-{number}@")).Select(m => m.Id).SingleAsync();
+    }
+
+    [Fact]
+    public async Task Examples_are_confirmed_mails_most_similar_last()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        await review.ConfirmOrderAsync(await SampleIdAsync("01"), new OrderDraft { CustomerCompany = "あおぞら工業株式会社", Items = [new() { ProductName = "A4コピー用紙", Quantity = 10, Unit = "箱" }] });
+        await review.MarkNotOrderAsync(await SampleIdAsync("11"));
+        await review.MarkNotOrderAsync(await SampleIdAsync("12"));
+        var targetId = await SampleIdAsync("08");
+        await review.ConfirmOrderAsync(targetId, new OrderDraft { Items = [new() { ProductName = "クリアファイル(A4)", Quantity = 200, Unit = "枚" }] });
+
+        await using var db = Db();
+        var target = await db.Mails.SingleAsync(m => m.Id == targetId);
+
+        var two = await ExampleSelector.SelectAsync(db, target, 2, CancellationToken.None);
+        var all = await ExampleSelector.SelectAsync(db, target, 10, CancellationToken.None);
+
+        // 01 has the same sender, 11 the same domain; 08 itself and unreviewed mails are never used.
+        Assert.Equal(["経理部", "山田 太郎"], two.Select(e => e.Mail.FromName));
+        Assert.Equal("あおぞら工業株式会社", two[1].Expected.CustomerCompany);
+        Assert.Equal(new ExtractedItem("A4コピー用紙", 10, "箱", null), Assert.Single(two[1].Expected.Items));
+        Assert.False(two[0].Expected.IsOrder);
+        Assert.Equal(3, all.Count);
+        Assert.Empty(await ExampleSelector.SelectAsync(db, target, 0, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Evaluation_compares_with_confirmed_answers_without_changing_data()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        await review.ConfirmOrderAsync(await SampleIdAsync("01"), new OrderDraft
+        {
+            CustomerCompany = "あおぞら工業株式会社",
+            DeliveryDate = new DateTime(2026, 10, 9),
+            Items = [new() { ProductName = "A4コピー用紙", Quantity = 10, Unit = "箱" }, new() { ProductName = "トナー", Quantity = 2, Unit = "本" }],
+        });
+        await review.ConfirmOrderAsync(await SampleIdAsync("02"), new OrderDraft
+        {
+            CustomerCompany = "ひなたデザイン",
+            Items = [new() { ProductName = "ボールペン", Quantity = 50, Unit = "本" }, new() { ProductName = "付箋", Quantity = 20, Unit = "個" }],
+        });
+        await review.MarkNotOrderAsync(await SampleIdAsync("13"));
+        int analyses;
+        await using (var db = Db()) analyses = await db.Analyses.CountAsync();
+
+        var report = await _services.GetRequiredService<PromptEvaluator>().EvaluateAsync(new AppSettings(), 50, null, CancellationToken.None);
+
+        Assert.Equal(3, report.Total);
+        Assert.Equal(2, report.Orders);
+        Assert.Equal(3, report.IsOrderOk);
+        Assert.Equal(2, report.ItemsOk);
+        Assert.Equal(1, report.CompanyOk);
+        Assert.Equal(2, report.DateOk);
+        Assert.Equal(2, report.Auto);
+        Assert.Equal(0, report.WrongAuto);
+        var miss = Assert.Single(report.Rows, r => !r.AllOk);
+        Assert.Equal("ひなたデザイン", miss.Expected.CustomerCompany);
+        await using (var db = Db()) Assert.Equal(analyses, await db.Analyses.CountAsync());
+    }
+
+    [Fact]
+    public void Settings_keep_prompt_settings_and_unchanged_rules_as_null()
+    {
+        var path = Path.Combine(_dataDir, "prompt-test.json");
+        var store = new SettingsStore(path);
+        var settings = store.Current;
+        Assert.Null(settings.Ai.Instructions);
+        Assert.Equal(OrderPrompt.DefaultInstructions, OrderPrompt.Instructions(settings.Ai));
+        settings.Ai.OwnCompanyName = "サンプル商事";
+        settings.Ai.Instructions = "独自のルール";
+        settings.Ai.ExampleCount = 5;
+        store.Save(settings);
+
+        var reloaded = new SettingsStore(path).Current.Ai;
+        Assert.Equal("サンプル商事", reloaded.OwnCompanyName);
+        Assert.Equal("独自のルール", OrderPrompt.Instructions(reloaded));
+        Assert.Equal(5, reloaded.ExampleCount);
+    }
+
     [Fact]
     public void Settings_encrypt_secrets_on_disk()
     {

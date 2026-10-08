@@ -26,6 +26,8 @@ public sealed class AppSettings
 
     /// <summary>Results at or above this confidence are registered (or dismissed) without human review.</summary>
     public double AutoRegisterThreshold { get; set; } = 0.8;
+
+    public AppSettings Copy() => JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this))!;
 }
 
 public sealed class AiSettings
@@ -36,6 +38,15 @@ public sealed class AiSettings
     public string ApiKey { get; set; } = "";
     public int TimeoutSeconds { get; set; } = 120;
     public bool UseJsonSchema { get; set; } = true;
+
+    /// <summary>The receiving company; tells the AI that the addressee is not the customer.</summary>
+    public string OwnCompanyName { get; set; } = "";
+
+    /// <summary>Editable judging and extraction rules; null uses <see cref="Analysis.OrderPrompt.DefaultInstructions"/>.</summary>
+    public string? Instructions { get; set; }
+
+    /// <summary>How many confirmed past mails to send as worked examples.</summary>
+    public int ExampleCount { get; set; } = 3;
 }
 
 public sealed class MailSourceSettings

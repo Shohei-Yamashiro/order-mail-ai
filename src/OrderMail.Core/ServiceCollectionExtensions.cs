@@ -23,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AnalyzerFactory>();
         services.AddSingleton<MailProcessor>();
         services.AddSingleton<ReviewService>();
+        services.AddSingleton<PromptEvaluator>();
         return services;
     }
 }

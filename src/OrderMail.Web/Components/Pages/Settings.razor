@@ -4,7 +4,9 @@
 @inject SettingsStore Store
 @inject AnalyzerFactory Analyzers
 @inject MailSourceFactory Sources
+@inject PromptEvaluator Evaluator
 @inject IToastService Toast
+@implements IDisposable
 
 <PageTitle>設定</PageTitle>
 
@@ -91,6 +93,86 @@
         }
     </section>
 
+    @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
+    {
+        <section class="panel">
+            <h3>AI への指示（プロンプト）</h3>
+            <p class="sub">判定と抽出のルールを書き換えられます。出力形式（JSON のキー）と、当社名・受信日のカレンダーはアプリが自動で付け足します。変更したら下の「確認済みメールで評価」で効果を確かめてから保存してください。</p>
+            <div class="row">
+                <div class="field"><FluentTextField Label="当社名（宛名を発注元と取り違えないように AI に伝えます）" Placeholder="例: サンプル商事" @bind-Value="_s.Ai.OwnCompanyName" /></div>
+                <div class="field"><FluentNumberField TValue="int" Label="手本にする確認済みメールの数（0 で使わない）" @bind-Value="_s.Ai.ExampleCount" Min="0" Max="10" /></div>
+            </div>
+            <div class="field">
+                <FluentTextArea Label="判定・抽出のルール" Rows="22" Resize="TextAreaResize.Vertical" Class="prompt-editor" @bind-Value="_instructions" />
+            </div>
+            <div class="actions">
+                <FluentButton Appearance="Appearance.Outline" Disabled="IsDefaultInstructions" OnClick="ResetInstructions">既定に戻す</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="TogglePreview">@(_preview is null ? "送信内容を表示" : "送信内容を隠す")</FluentButton>
+                <span class="sub" style="align-self: center">@(IsDefaultInstructions ? "既定のルールを使用中" : "編集済み（保存すると反映）")</span>
+            </div>
+            @if (_preview is not null)
+            {
+                <div class="test-result prompt-preview">@_preview</div>
+            }
+            <p class="sub">手本：担当者が確定したメールのうち、差出人が同じものや文面が似ているものを、正しい答えと一緒に AI に見せます。確定するほど、取引先ごとの書き方に合った読み取りになります。</p>
+        </section>
+    }
+
+    <section class="panel">
+        <h3>評価</h3>
+        <p class="sub">担当者が確定したメール（新しい順に @MaxEvalMails 件まで）を、この画面の設定（保存前でも可）で解析し直して、確定した内容と比べます。結果は保存されず、メールの状態も変わりません。手本は評価するメール自身を除いて選びます。</p>
+        <div class="actions" style="margin-top: 0">
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.DataBarVertical())" Disabled="@(_evaluating || _testing)" OnClick="EvaluateAsync">確認済みメールで評価</FluentButton>
+            @if (_evaluating)
+            {
+                <FluentProgressRing Width="16px" Style="align-self: center" />
+                <span class="sub" style="align-self: center">@_evalProgress</span>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="CancelEvaluation">中止</FluentButton>
+            }
+        </div>
+
+        @if (_report is { } r)
+        {
+            <div class="sub" style="margin-top: 10px">@r.Analyzer@(r.ExampleCount > 0 ? $"・手本 {r.ExampleCount} 件まで" : "")・@r.Total 件（うち発注 @r.Orders 件）</div>
+            <table class="eval-table">
+                <tr><th></th><th>今回</th>@if (_previousReport is not null) {<th>前回</th>}</tr>
+                @foreach (var (label, value) in Metrics)
+                {
+                    <tr>
+                        <td>@label</td>
+                        <td>@value(r)</td>
+                        @if (_previousReport is { } p)
+                        {
+                            <td class="sub">@value(p)</td>
+                        }
+                    </tr>
+                }
+            </table>
+
+            var misses = r.Rows.Where(x => !x.AllOk).ToList();
+            if (misses.Count == 0)
+            {
+                <p class="sub">すべて確定内容と一致しました。</p>
+            }
+            else
+            {
+                <strong style="font-size: 13px">確定内容と違ったメール（@misses.Count 件）</strong>
+                <ul class="eval-misses">
+                    @foreach (var row in misses)
+                    {
+                        <li>
+                            <a href="@($"mails/{row.MailId}")" target="_blank">@row.Subject</a>
+                            @foreach (var diff in Differences(row))
+                            {
+                                <div class="sub">@diff</div>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        }
+    </section>
+
     <section class="panel">
         <h3>自動登録</h3>
         <p class="sub">AI の自信度がこの値以上なら、人の確認なしで「発注」または「発注以外」に振り分けます。下回るものは「要確認」になります。</p>
@@ -120,11 +202,131 @@
         "いつもお世話になっております。テスト商事の田中です。\n下記の通り発注いたします。\n・A4コピー用紙 × 10箱\n・ボールペン（黒）50本\n納期は来週金曜日までにお願いします。",
         DateTime.UtcNow);
 
+    private const int MaxEvalMails = 50;
+
+    private static readonly (string Label, Func<EvaluationReport, string> Value)[] Metrics =
+    [
+        ("発注かどうかの判定", r => Ratio(r.IsOrderOk, r.Total)),
+        ("明細（数量・単位）", r => Ratio(r.ItemsOk, r.Orders)),
+        ("会社名", r => Ratio(r.CompanyOk, r.Orders)),
+        ("希望納期", r => Ratio(r.DateOk, r.Orders)),
+        ("自動で確定", r => Ratio(r.Auto, r.Total)),
+        ("うち判定の誤り", r => $"{r.WrongAuto} 件"),
+        ("解析エラー", r => $"{r.Errors} 件"),
+        ("1 通あたりの時間", r => $"{r.AverageSeconds:0.0} 秒"),
+    ];
+
     private AppSettings _s = new();
     private bool _testing;
     private string? _aiTestResult;
+    private string _instructions = "";
+    private string? _preview;
+    private bool _evaluating;
+    private string? _evalProgress;
+    private EvaluationReport? _report;
+    private EvaluationReport? _previousReport;
+    private CancellationTokenSource? _evalCts;
 
-    protected override void OnInitialized() => _s = Store.Current;
+    protected override void OnInitialized()
+    {
+        _s = Store.Current;
+        _instructions = OrderPrompt.Instructions(_s.Ai);
+    }
+
+    public void Dispose() => _evalCts?.Cancel();
+
+    private bool IsDefaultInstructions =>
+        string.IsNullOrWhiteSpace(_instructions) || Plain(_instructions) == Plain(OrderPrompt.DefaultInstructions);
+
+    private static string Plain(string s) => s.Replace("\r\n", "\n").Trim();
+
+    /// <summary>Unchanged rules are stored as null so that improvements to the default reach this installation.</summary>
+    private void ApplyInstructions()
+    {
+        _s.Ai.Instructions = IsDefaultInstructions ? null : Plain(_instructions);
+        _s.Ai.ExampleCount = Math.Clamp(_s.Ai.ExampleCount, 0, 10);
+    }
+
+    private void ResetInstructions()
+    {
+        _instructions = OrderPrompt.DefaultInstructions;
+        if (_preview is not null) TogglePreview();
+    }
+
+    private void TogglePreview()
+    {
+        if (_preview is not null)
+        {
+            _preview = null;
+            return;
+        }
+        ApplyInstructions();
+        _preview = OrderPrompt.System(_s.Ai, TestMail.ReceivedAtUtc.ToLocalTime(), _s.Ai.ExampleCount > 0)
+            + "\n\n────────\n（ここに手本のメールと正しい出力が続き、最後に解析するメールが入ります。例：）\n\n"
+            + OrderPrompt.User(TestMail);
+    }
+
+    private async Task EvaluateAsync()
+    {
+        ApplyInstructions();
+        _evaluating = true;
+        _evalCts = new CancellationTokenSource();
+        var progress = new Progress<string>(p =>
+        {
+            _evalProgress = p;
+            StateHasChanged();
+        });
+        try
+        {
+            var report = await Evaluator.EvaluateAsync(_s.Copy(), MaxEvalMails, progress, _evalCts.Token);
+            if (report.Total == 0)
+            {
+                Toast.ShowInfo("確認済みのメールがありません。メール詳細で「発注として登録」か「発注ではない」を押すと、評価と手本に使えるようになります。");
+                return;
+            }
+            _previousReport = _report;
+            _report = report;
+        }
+        catch (OperationCanceledException)
+        {
+            Toast.ShowInfo("評価を中止しました。");
+        }
+        finally
+        {
+            _evaluating = false;
+            _evalProgress = null;
+            _evalCts?.Dispose();
+            _evalCts = null;
+        }
+    }
+
+    private void CancelEvaluation() => _evalCts?.Cancel();
+
+    private static string Ratio(int ok, int total) =>
+        total == 0 ? "－" : $"{ok}/{total}（{(double)ok / total:P0}）";
+
+    private static IEnumerable<string> Differences(EvaluationRow row)
+    {
+        if (row.Error is not null)
+        {
+            yield return "エラー: " + row.Error;
+            yield break;
+        }
+        var a = row.Actual!;
+        var e = row.Expected;
+        if (!row.IsOrderOk)
+        {
+            yield return $"判定: 正解は{(e.IsOrder ? "発注" : "発注以外")}、AI は{(a.IsOrder ? "発注" : "発注以外")}（自信度 {a.Confidence:0.00}）";
+            yield break;
+        }
+        if (!e.IsOrder) yield break;
+        if (!row.CompanyOk) yield return $"会社名: 正解「{e.CustomerCompany ?? "なし"}」、AI「{a.CustomerCompany ?? "なし"}」";
+        if (!row.DateOk) yield return $"希望納期: 正解 {e.DeliveryDate?.ToString("yyyy-MM-dd") ?? "なし"}、AI {a.DeliveryDate?.ToString("yyyy-MM-dd") ?? "なし"}";
+        if (!row.ItemsOk) yield return $"明細: 正解 {Items(e)}、AI {Items(a)}";
+    }
+
+    private static string Items(OrderExtraction e) =>
+        e.Items.Count == 0 ? "なし" : string.Join("／", e.Items.Select(i => $"{i.ProductName} {i.Quantity:0.###}{i.Unit}"));
 
     private void ApplyPreset(Preset p)
     {
@@ -134,6 +336,7 @@
 
     private void Save()
     {
+        ApplyInstructions();
         _s.AutoRegisterThreshold = Math.Clamp(_s.AutoRegisterThreshold, 0, 1);
         Store.Save(_s);
         Toast.ShowSuccess("設定を保存しました。");
@@ -143,11 +346,12 @@
     {
         _testing = true;
         _aiTestResult = null;
-        var analyzer = Analyzers.Create(_s.Ai);
+        ApplyInstructions();
+        var analyzer = Analyzers.Create(_s.Copy().Ai);
         var watch = Stopwatch.StartNew();
         try
         {
-            var result = await analyzer.AnalyzeAsync(TestMail, CancellationToken.None);
+            var result = await analyzer.AnalyzeAsync(TestMail, [], CancellationToken.None);
             _aiTestResult = $"成功：{analyzer.Name}（{watch.ElapsedMilliseconds} ms）\n\n{ExtractionJson.Serialize(result)}";
         }
         catch (Exception e)

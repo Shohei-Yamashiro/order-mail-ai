@@ -19,7 +19,7 @@ public class OpenAiCompatibleAnalyzerTests
         var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(OrderJson)));
         var analyzer = Create(handler, new AiSettings { Endpoint = "https://api.example.com/v1/", Model = "m1", ApiKey = "secret" });
 
-        var result = await analyzer.AnalyzeAsync(Mail, CancellationToken.None);
+        var result = await analyzer.AnalyzeAsync(Mail, [], CancellationToken.None);
 
         Assert.True(result.IsOrder);
         Assert.Equal("封筒", Assert.Single(result.Items).ProductName);
@@ -38,7 +38,7 @@ public class OpenAiCompatibleAnalyzerTests
             : Reply(HttpStatusCode.OK, Completion(OrderJson)));
         var analyzer = Create(handler, new AiSettings { Endpoint = "http://localhost:11434/v1", Model = "m" });
 
-        var result = await analyzer.AnalyzeAsync(Mail, CancellationToken.None);
+        var result = await analyzer.AnalyzeAsync(Mail, [], CancellationToken.None);
 
         Assert.True(result.IsOrder);
         Assert.Equal(2, handler.Requests.Count);
@@ -53,10 +53,92 @@ public class OpenAiCompatibleAnalyzerTests
         var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(replies.Dequeue())));
         var analyzer = Create(handler, new AiSettings { Model = "m" });
 
-        var result = await analyzer.AnalyzeAsync(Mail, CancellationToken.None);
+        var result = await analyzer.AnalyzeAsync(Mail, [], CancellationToken.None);
 
         Assert.True(result.IsOrder);
         Assert.Equal(4, handler.Requests[1].Body["messages"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public async Task Sends_examples_as_conversation_before_the_mail()
+    {
+        var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(OrderJson)));
+        var analyzer = Create(handler, new AiSettings { Model = "m", OwnCompanyName = "サンプル商事", Instructions = "独自のルール" });
+        var example = new AnalysisExample(
+            new MailInput("いつもの", "sato@hinata.example", "佐藤", "ボールペン50本お願いします", Mail.ReceivedAtUtc),
+            new OrderExtraction { IsOrder = true, Confidence = 0.95, CustomerCompany = "ひなたデザイン", Items = [new ExtractedItem("ボールペン", 50, "本", null)] });
+
+        await analyzer.AnalyzeAsync(Mail, [example], CancellationToken.None);
+
+        var messages = Assert.Single(handler.Requests).Body["messages"]!.AsArray();
+        Assert.Equal(["system", "user", "assistant", "user"], messages.Select(m => m!["role"]!.GetValue<string>()));
+        var system = messages[0]!["content"]!.GetValue<string>();
+        Assert.Contains("独自のルール", system);
+        Assert.DoesNotContain("# 判定基準", system);
+        Assert.Contains("「サンプル商事」", system);
+        Assert.Contains("# 手本", system);
+        Assert.Contains("ボールペン50本", messages[1]!["content"]!.GetValue<string>());
+        var answer = ExtractionJson.Parse(messages[2]!["content"]!.GetValue<string>());
+        Assert.Equal("ひなたデザイン", answer.CustomerCompany);
+        Assert.Contains("封筒を100枚", messages[3]!["content"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void System_prompt_has_default_rules_and_a_calendar_for_relative_dates()
+    {
+        var system = OrderPrompt.System(new AiSettings(), new DateTime(2026, 10, 8, 9, 0, 0), hasExamples: false);
+
+        Assert.Contains("# 判定基準", system);
+        Assert.Contains("受信日: 2026-10-08(木)", system);
+        Assert.Contains("今週: 2026-10-05(月)", system);
+        Assert.Contains("2026-10-10(土)", system);
+        Assert.Contains("来週: 2026-10-12(月)", system);
+        Assert.Contains("当社はこのメールの受信者", system);
+        Assert.Contains("# 出力", system);
+        Assert.DoesNotContain("# 手本", system);
+    }
+
+    [Fact]
+    public async Task Drops_customer_company_when_it_is_the_own_company()
+    {
+        var json = OrderJson.Replace("\"customer_company\": null", "\"customer_company\": \"株式会社 サンプル商事\"");
+        var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(json)));
+        var analyzer = Create(handler, new AiSettings { Model = "m", OwnCompanyName = "サンプル商事" });
+
+        var result = await analyzer.AnalyzeAsync(Mail, [], CancellationToken.None);
+
+        Assert.Null(result.CustomerCompany);
+        Assert.Single(result.Items);
+    }
+
+    [Fact]
+    public void Date_hints_resolve_relative_days_from_the_received_date()
+    {
+        var received = new DateOnly(2026, 10, 8);
+
+        var hints = DateHints.Find("今週土曜までに手配を。来週の金曜日でも可。再来週月曜は不可。\n明日連絡します。来週中に届くと助かります。\n> 明後日（引用）", received);
+
+        Assert.Equal(
+        [
+            "「今週土曜」= 2026-10-10(土)",
+            "「来週の金曜日」= 2026-10-16(金)",
+            "「再来週月曜」= 2026-10-19(月)",
+            "「明日」= 2026-10-09(金)",
+            "「来週中」は日が決まらない表現",
+        ], hints);
+        Assert.Empty(DateHints.Find("納期：10月9日", received));
+    }
+
+    [Fact]
+    public void User_prompt_adds_date_hints_only_when_found()
+    {
+        var local = new DateTime(2026, 10, 8, 9, 0, 0, DateTimeKind.Local);
+        var withHint = OrderPrompt.User(Mail with { Body = "封筒を100枚、今週土曜までに", ReceivedAtUtc = local.ToUniversalTime() });
+        var without = OrderPrompt.User(Mail with { ReceivedAtUtc = local.ToUniversalTime() });
+
+        Assert.Contains("日付の手がかり", withHint);
+        Assert.Contains("2026-10-10(土)", withHint);
+        Assert.DoesNotContain("日付の手がかり", without);
     }
 
     [Fact]
@@ -65,7 +147,7 @@ public class OpenAiCompatibleAnalyzerTests
         var handler = new FakeHandler(_ => Reply(HttpStatusCode.Unauthorized, """{"error": "invalid api key"}"""));
         var analyzer = Create(handler, new AiSettings { Model = "m" });
 
-        var e = await Assert.ThrowsAsync<AiConnectionException>(() => analyzer.AnalyzeAsync(Mail, CancellationToken.None));
+        var e = await Assert.ThrowsAsync<AiConnectionException>(() => analyzer.AnalyzeAsync(Mail, [], CancellationToken.None));
 
         Assert.Contains("401", e.Message);
         Assert.Contains("invalid api key", e.Message);

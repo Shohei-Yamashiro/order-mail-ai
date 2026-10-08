@@ -261,6 +261,32 @@ h1:focus {
     overflow: auto;
 }
 
+.prompt-preview {
+    max-height: 480px;
+}
+
+.eval-table {
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 6px 0 12px;
+}
+
+.eval-table td, .eval-table th {
+    padding: 3px 14px 3px 0;
+    border-bottom: 1px solid #eceef1;
+    text-align: left;
+}
+
+.eval-misses {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 13px;
+}
+
+.eval-misses li {
+    margin-bottom: 6px;
+}
+
 #blazor-error-ui {
     background: lightyellow;
     bottom: 0;

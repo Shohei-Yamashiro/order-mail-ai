@@ -107,7 +107,7 @@ public sealed class MailProcessor(
         for (var i = 0; i < ids.Count; i++)
         {
             Report($"解析中 {i + 1}/{ids.Count}（{analyzer.Name}）");
-            if (await AnalyzeOneAsync(ids[i], analyzer, settings.AutoRegisterThreshold, ct)) analyzed++;
+            if (await AnalyzeOneAsync(ids[i], analyzer, settings, ct)) analyzed++;
             else failed++;
         }
         return (analyzed, failed);
@@ -122,7 +122,7 @@ public sealed class MailProcessor(
             var settings = settingsStore.Current;
             var analyzer = analyzers.Create(settings.Ai);
             Report($"再解析中（{analyzer.Name}）");
-            return await AnalyzeOneAsync(mailId, analyzer, settings.AutoRegisterThreshold, ct);
+            return await AnalyzeOneAsync(mailId, analyzer, settings, ct);
         }
         finally
         {
@@ -132,16 +132,19 @@ public sealed class MailProcessor(
         }
     }
 
-    private async Task<bool> AnalyzeOneAsync(int mailId, IOrderAnalyzer analyzer, double threshold, CancellationToken ct)
+    private async Task<bool> AnalyzeOneAsync(int mailId, IOrderAnalyzer analyzer, AppSettings settings, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var mail = await db.Mails.Include(m => m.Order).SingleAsync(m => m.Id == mailId, ct);
+        var examples = settings.Ai.Provider == AiProvider.OpenAiCompatible
+            ? await ExampleSelector.SelectAsync(db, mail, settings.Ai.ExampleCount, ct)
+            : [];
 
         var watch = Stopwatch.StartNew();
         OrderExtraction result;
         try
         {
-            result = await analyzer.AnalyzeAsync(MailInput.From(mail), ct);
+            result = await analyzer.AnalyzeAsync(MailInput.From(mail), examples, ct);
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
@@ -156,7 +159,7 @@ public sealed class MailProcessor(
         db.Analyses.Add(new MailAnalysis
         {
             ReceivedMailId = mail.Id,
-            Analyzer = analyzer.Name,
+            Analyzer = AnalyzerLabel(analyzer, examples.Count),
             IsOrder = result.IsOrder,
             Confidence = result.Confidence,
             Reason = result.Reason,
@@ -175,7 +178,7 @@ public sealed class MailProcessor(
                 await db.SaveChangesAsync(ct);
                 mail.Order = null;
             }
-            mail.Status = RegistrationPolicy.Decide(result, threshold);
+            mail.Status = RegistrationPolicy.Decide(result, settings.AutoRegisterThreshold);
             if (mail.Status == MailStatus.Registered)
             {
                 var order = new Order { RegisteredBy = RegisteredBy.Auto, CreatedAt = now, UpdatedAt = now };
@@ -186,6 +189,9 @@ public sealed class MailProcessor(
         await db.SaveChangesAsync(ct);
         return true;
     }
+
+    public static string AnalyzerLabel(IOrderAnalyzer analyzer, int exampleCount) =>
+        exampleCount > 0 ? $"{analyzer.Name}・手本{exampleCount}件" : analyzer.Name;
 
     private void Report(string? progress)
     {
