@@ -11,4 +11,7 @@ alwaysApply: true
   - ルールベースの判定を変えたら、サンプル 20 通の正解率テスト（`RuleBasedAnalyzerTests`）の出力を確認する。
   - サンプルメールを足したら `samples/labels.json` に正解ラベルも足す。
 - 配布物を変えたら `scripts/publish.ps1` で zip を作り、展開した exe が起動することを確認する。
+- アプリの動作に関わる変更（`src`・`samples`・設定・配布物）をしたら、作業の最後に `scripts/publish.ps1` を実行し、ユーザー確認用の `OrderMail-latest\OrderMail.exe`（ルート直下、Git 管理外）を最新にする。ドキュメントやルールだけの変更では不要。
+ - `OrderMail-latest\data`（DB と設定）は作り直しても残す。
+ - 最終報告で `OrderMail-latest\OrderMail.exe` を更新したことを伝える。
 - 動作確認で起動したアプリ（`dotnet run` や `OrderMail.exe`）は、確認後に自分で停止する。

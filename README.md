@@ -70,6 +70,8 @@ dotnet test                                # テスト
 powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\OrderMail-win-x64.zip を作成
 ```
 
+`publish.ps1` は確認用に `OrderMail-latest\OrderMail.exe` も更新します（`data` フォルダは残します）。
+
 | フォルダ | 内容 |
 |---|---|
 | `src/OrderMail.Core` | 取り込み・解析・DB・振り分けのロジック（画面に依存しない） |
