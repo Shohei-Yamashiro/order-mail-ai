@@ -82,6 +82,17 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 あわせてテストを実行し、テスト仕様書 `docs/test-spec.md` と、結果を含む報告書 `OrderMail-latest\test-report.md` を作ります。テスト仕様書の内容は、各テストに付けた `[Spec]` 属性（区分・項目名・確認内容）から作られます。
 テスト仕様書と報告書だけを作り直すときは、`dotnet run scripts/TestReport.cs -- . OrderMail-latest` を実行します。
 
+### CI（GitHub Actions）
+
+`.github/workflows/ci.yml` で、GitHub に置いたときに次を自動で行います（Windows で実行）。
+
+| きっかけ | 内容 |
+|---|---|
+| `main` への push・PR | ビルドとテスト。報告書を成果物 `test-report` に保存。`docs/test-spec.md` が古いと失敗 |
+| `v*` タグの push・手動実行 | 上に加えて、配布物を成果物 `OrderMail-win-x64` に保存 |
+
+`docs/test-spec.md` が古いと言われたら、`dotnet run scripts/TestReport.cs -- .` を実行してコミットします。
+
 | フォルダ | 内容 |
 |---|---|
 | `src/OrderMail.Core` | 取り込み・解析・DB・振り分けのロジック（画面に依存しない） |
@@ -89,6 +100,8 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 | `tests/OrderMail.Tests` | xUnit のテスト（AI 接続は偽の HTTP サーバーで検証） |
 | `samples/mails` | デモ用の発注メール・発注以外のメール 20 通（`samples/labels.json` が正解ラベル） |
 | `scripts/publish.ps1` | 配布用 zip の作成 |
+| `scripts/TestReport.cs` | テスト仕様書・テスト報告書の作成 |
+| `.github/workflows` | CI の設定 |
 
 ## 技術スタック
 

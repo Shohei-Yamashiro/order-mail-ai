@@ -19,7 +19,7 @@ var resultsDir = args.Length > 1 ? Path.GetFullPath(args[1]) : null;
 var testProject = Path.Combine(root, "tests", "OrderMail.Tests");
 var trxDir = Path.Combine(Path.GetTempPath(), "ordermail-testreport-" + Guid.NewGuid().ToString("N"));
 
-var started = DateTime.Now;
+var started = DateTimeOffset.Now;
 var (testExit, testLog) = Run("dotnet", $"test \"{testProject}\" --nologo --logger \"trx;LogFileName=results.trx\" --results-directory \"{trxDir}\"", root);
 var trxPath = Path.Combine(trxDir, "results.trx");
 if (!File.Exists(trxPath))
@@ -33,7 +33,9 @@ var results = LoadResults(trxPath);
 Directory.Delete(trxDir, recursive: true);
 
 var commit = Run("git", "rev-parse --short HEAD", root).Output.Trim();
-var branch = Run("git", "branch --show-current", root).Output.Trim();
+var branch = Run("git", "branch --show-current", root).Output.Trim() is { Length: > 0 } current ? current
+    : Environment.GetEnvironmentVariable("GITHUB_HEAD_REF") is { Length: > 0 } head ? head
+    : Environment.GetEnvironmentVariable("GITHUB_REF_NAME") ?? "(不明)";
 var dirty = Run("git", "status --porcelain", root).Output.Trim().Length > 0;
 var target = $"ブランチ `{branch}`・コミット `{commit}`" + (dirty ? "（未コミットの変更を含む）" : "");
 
@@ -44,7 +46,7 @@ if (resultsDir is not null)
 {
     Directory.CreateDirectory(resultsDir);
     var reportPath = Path.Combine(resultsDir, "test-report.md");
-    var run = new RunInfo(started, DateTime.Now - started, target);
+    var run = new RunInfo(started, DateTimeOffset.Now - started, target);
     File.WriteAllText(reportPath, Document(specs, results, run), new UTF8Encoding(false));
     Console.WriteLine($"Wrote {reportPath}");
 }
@@ -142,9 +144,9 @@ static string Document(List<Spec> specs, Dictionary<string, List<CaseResult>>? r
         sb.AppendLine("|---|---|");
         sb.AppendLine($"| 総合判定 | **{(failed == 0 && notRun == 0 ? "合格" : "不合格")}** |");
         sb.AppendLine($"| 結果 | 合格 {passed}・不合格 {failed}・未実行 {notRun}（テストケース数。{specs.Count} 項目） |");
-        sb.AppendLine($"| 実行日時 | {run!.Started:yyyy-MM-dd HH:mm}（所要 {run.Elapsed.TotalSeconds:0} 秒） |");
+        sb.AppendLine($"| 実行日時 | {run!.Started:yyyy-MM-dd HH:mm}（UTC{run.Started:zzz}、所要 {run.Elapsed.TotalSeconds:0} 秒） |");
         sb.AppendLine($"| 対象 | {run.Target} |");
-        sb.AppendLine("| 実行方法 | `dotnet test`（`scripts/publish.ps1` から自動実行） |");
+        sb.AppendLine("| 実行方法 | `dotnet test`（`scripts/publish.ps1` または CI から自動実行） |");
         sb.AppendLine();
         sb.AppendLine("このファイルは `scripts/TestReport.cs` が自動で作ります。結果を含まない仕様書は `docs/test-spec.md` にあります。");
     }
@@ -153,7 +155,7 @@ static string Document(List<Spec> specs, Dictionary<string, List<CaseResult>>? r
         sb.AppendLine("# テスト仕様書（発注メール AI 仕分け）");
         sb.AppendLine();
         sb.AppendLine("このファイルは `scripts/TestReport.cs` がテストコードの説明（`[Spec]` 属性）から自動で作ります。直接編集せず、テストの `[Spec]` を直してください。");
-        sb.AppendLine("最新の実行結果は、`scripts/publish.ps1` を実行すると `OrderMail-latest/test-report.md` に出力されます。");
+        sb.AppendLine("最新の実行結果は、`scripts/publish.ps1` を実行すると `OrderMail-latest/test-report.md` に出力されます。CI では成果物 `test-report` に保存されます。");
     }
 
     sb.AppendLine();
@@ -234,7 +236,7 @@ static string Document(List<Spec> specs, Dictionary<string, List<CaseResult>>? r
             sb.AppendLine("```");
         }
     }
-    return sb.ToString();
+    return sb.ToString().ReplaceLineEndings("\n");
 }
 
 static Dictionary<string, string> Ids(List<Spec> specs)
@@ -255,4 +257,4 @@ static string Cell(string text) =>
 
 record Spec(string Key, string Category, string Title, string Expected, int Cases);
 record CaseResult(string Name, string Outcome, TimeSpan Duration, string? StdOut, string? Message, string? StackTrace);
-record RunInfo(DateTime Started, TimeSpan Elapsed, string Target);
+record RunInfo(DateTimeOffset Started, TimeSpan Elapsed, string Target);

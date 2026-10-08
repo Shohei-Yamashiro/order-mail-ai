@@ -2,7 +2,9 @@
 # and refreshes OrderMail-latest\ at the repository root for manual checking, with the test report.
 # The exe is self-contained, so the target PC needs no .NET installation.
 param(
-    [string]$Runtime = "win-x64"
+    [string]$Runtime = "win-x64",
+    # Only build the zip (used by CI): skip OrderMail-latest and the test report.
+    [switch]$ZipOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +23,7 @@ Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip
 
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "Created $zip ($size MB)"
+if ($ZipOnly) { return }
 
 # Copy for manual checking: OrderMail-latest\OrderMail.exe. The data folder (DB and settings) is kept across rebuilds.
 $latest = Join-Path $root "OrderMail-latest"
