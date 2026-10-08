@@ -93,6 +93,8 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 
 `docs/test-spec.md` が古いと言われたら、`dotnet run scripts/TestReport.cs -- .` を実行してコミットします。
 
+ワークフローで使う公式部品（`actions/checkout` など）は、Dependabot（`.github/dependabot.yml`）が毎週月曜に新しい安定版を確認し、版上げの PR をまとめて作ります。
+
 | フォルダ | 内容 |
 |---|---|
 | `src/OrderMail.Core` | 取り込み・解析・DB・振り分けのロジック（画面に依存しない） |
