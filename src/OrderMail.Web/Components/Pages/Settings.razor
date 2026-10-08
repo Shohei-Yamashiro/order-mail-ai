@@ -1,0 +1,180 @@
+@page "/settings"
+@using System.Diagnostics
+@using OrderMail.Core.Mail
+@inject SettingsStore Store
+@inject AnalyzerFactory Analyzers
+@inject MailSourceFactory Sources
+@inject IToastService Toast
+
+<PageTitle>設定</PageTitle>
+
+<div class="page-head">
+    <h2>設定</h2>
+    <span class="spacer"></span>
+    <FluentButton Appearance="Appearance.Accent" IconStart="@(new Icons.Regular.Size20.Save())" OnClick="Save">保存</FluentButton>
+</div>
+
+<div class="settings">
+    <section class="panel">
+        <h3>メールの取得元</h3>
+        <FluentRadioGroup TValue="MailSourceKind" @bind-Value="_s.Mail.Kind" Orientation="Orientation.Horizontal">
+            <FluentRadio Value="MailSourceKind.EmlFolder">.eml フォルダ</FluentRadio>
+            <FluentRadio Value="MailSourceKind.Imap">IMAP（メールサーバー）</FluentRadio>
+        </FluentRadioGroup>
+
+        @if (_s.Mail.Kind == MailSourceKind.EmlFolder)
+        {
+            <div class="row">
+                <div class="field wide">
+                    <FluentTextField Label="フォルダ（相対パスはアプリの場所から）" @bind-Value="_s.Mail.EmlFolder" />
+                    <div class="sub">@Sources.ResolveFolder(_s.Mail.EmlFolder)</div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="row">
+                <div class="field"><FluentTextField Label="サーバー" Placeholder="imap.example.com" @bind-Value="_s.Mail.ImapHost" /></div>
+                <div class="field"><FluentNumberField TValue="int" Label="ポート" @bind-Value="_s.Mail.ImapPort" Min="1" Max="65535" /></div>
+                <div class="field"><FluentTextField Label="ユーザー名" @bind-Value="_s.Mail.ImapUser" /></div>
+                <div class="field"><FluentTextField Label="パスワード" TextFieldType="TextFieldType.Password" @bind-Value="_s.Mail.ImapPassword" /></div>
+                <div class="field"><FluentTextField Label="フォルダ" @bind-Value="_s.Mail.ImapFolder" /></div>
+                <div class="field"><FluentNumberField TValue="int" Label="取り込む期間（日）" @bind-Value="_s.Mail.ImapSinceDays" Min="1" /></div>
+                <div class="field"><FluentCheckbox Label="SSL/TLS で接続する" @bind-Value="_s.Mail.ImapUseSsl" /></div>
+            </div>
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.PlugConnected())" Disabled="_testing" OnClick="TestImapAsync">接続テスト</FluentButton>
+        }
+
+        <div class="row" style="margin-top: 12px">
+            <div class="field" style="align-self: end"><FluentSwitch Label="自動で取り込む" @bind-Value="_s.Mail.AutoPoll" /></div>
+            <div class="field"><FluentNumberField TValue="int" Label="間隔（分）" @bind-Value="_s.Mail.PollIntervalMinutes" Min="1" Disabled="!_s.Mail.AutoPoll" /></div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <h3>AI の接続先</h3>
+        <FluentRadioGroup TValue="AiProvider" @bind-Value="_s.Ai.Provider" Orientation="Orientation.Horizontal">
+            <FluentRadio Value="AiProvider.RuleBased">使わない（ルールベース）</FluentRadio>
+            <FluentRadio Value="AiProvider.OpenAiCompatible">OpenAI 互換 API</FluentRadio>
+        </FluentRadioGroup>
+
+        @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
+        {
+            <p class="sub">Ollama・LM Studio・Gemini・OpenAI など、OpenAI 互換の API に接続できます。プリセットで入力欄を埋めてから調整してください。</p>
+            <div class="presets">
+                @foreach (var p in Presets)
+                {
+                    <FluentButton Appearance="Appearance.Outline" OnClick="@(() => ApplyPreset(p))">@p.Name</FluentButton>
+                }
+            </div>
+            <div class="row">
+                <div class="field wide"><FluentTextField Label="エンドポイント" @bind-Value="_s.Ai.Endpoint" /></div>
+                <div class="field"><FluentTextField Label="モデル" @bind-Value="_s.Ai.Model" /></div>
+                <div class="field"><FluentTextField Label="API キー（ローカル LLM なら空欄）" TextFieldType="TextFieldType.Password" @bind-Value="_s.Ai.ApiKey" /></div>
+                <div class="field"><FluentNumberField TValue="int" Label="タイムアウト（秒）" @bind-Value="_s.Ai.TimeoutSeconds" Min="5" /></div>
+                <div class="field" style="align-self: end"><FluentCheckbox Label="JSON スキーマ指定を使う（非対応なら自動で切り替え）" @bind-Value="_s.Ai.UseJsonSchema" /></div>
+            </div>
+        }
+        else
+        {
+            <p class="sub">キーワードと書式のパターンで判定します。AI を用意しなくても動作確認できますが、自由な文面には弱いです。</p>
+        }
+
+        <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.PlugConnected())" Disabled="_testing" OnClick="TestAiAsync">テスト解析</FluentButton>
+        @if (_testing)
+        {
+            <FluentProgressRing Width="16px" Style="display: inline-block; margin-left: 8px" />
+        }
+        @if (_aiTestResult is not null)
+        {
+            <div class="test-result">@_aiTestResult</div>
+        }
+    </section>
+
+    <section class="panel">
+        <h3>自動登録</h3>
+        <p class="sub">AI の自信度がこの値以上なら、人の確認なしで「発注」または「発注以外」に振り分けます。下回るものは「要確認」になります。</p>
+        <div class="row">
+            <div class="field"><FluentNumberField TValue="double" Label="自信度のしきい値（0〜1）" @bind-Value="_s.AutoRegisterThreshold" Min="0" Max="1" Step="0.05" /></div>
+        </div>
+    </section>
+
+    <p class="sub">API キーと IMAP パスワードは Windows のユーザーごとに暗号化して保存します。</p>
+</div>
+
+@code {
+    private sealed record Preset(string Name, string Endpoint, string Model);
+
+    private static readonly Preset[] Presets =
+    [
+        new("Ollama", "http://localhost:11434/v1", "qwen2.5:7b"),
+        new("LM Studio", "http://localhost:1234/v1", ""),
+        new("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+        new("OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini"),
+    ];
+
+    private static readonly MailInput TestMail = new(
+        "発注のお願い",
+        "test@example.com",
+        "テスト 太郎",
+        "いつもお世話になっております。テスト商事の田中です。\n下記の通り発注いたします。\n・A4コピー用紙 × 10箱\n・ボールペン（黒）50本\n納期は来週金曜日までにお願いします。",
+        DateTime.UtcNow);
+
+    private AppSettings _s = new();
+    private bool _testing;
+    private string? _aiTestResult;
+
+    protected override void OnInitialized() => _s = Store.Current;
+
+    private void ApplyPreset(Preset p)
+    {
+        _s.Ai.Endpoint = p.Endpoint;
+        _s.Ai.Model = p.Model;
+    }
+
+    private void Save()
+    {
+        _s.AutoRegisterThreshold = Math.Clamp(_s.AutoRegisterThreshold, 0, 1);
+        Store.Save(_s);
+        Toast.ShowSuccess("設定を保存しました。");
+    }
+
+    private async Task TestAiAsync()
+    {
+        _testing = true;
+        _aiTestResult = null;
+        var analyzer = Analyzers.Create(_s.Ai);
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            var result = await analyzer.AnalyzeAsync(TestMail, CancellationToken.None);
+            _aiTestResult = $"成功：{analyzer.Name}（{watch.ElapsedMilliseconds} ms）\n\n{ExtractionJson.Serialize(result)}";
+        }
+        catch (Exception e)
+        {
+            _aiTestResult = $"失敗：{e.Message}";
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    private async Task TestImapAsync()
+    {
+        _testing = true;
+        try
+        {
+            var count = await new ImapMailSource(_s.Mail).TestAsync(CancellationToken.None);
+            Toast.ShowSuccess($"接続できました（{_s.Mail.ImapFolder}：{count} 件）。");
+        }
+        catch (Exception e)
+        {
+            Toast.ShowError("接続できませんでした: " + e.Message);
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+}

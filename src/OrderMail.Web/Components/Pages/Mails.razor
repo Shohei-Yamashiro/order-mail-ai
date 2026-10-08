@@ -1,0 +1,135 @@
+@page "/"
+@page "/mails"
+@implements IDisposable
+@inject IDbContextFactory<OrderMailDbContext> DbFactory
+@inject MailProcessor Processor
+@inject ReviewService Review
+@inject NavigationManager Nav
+@inject IToastService Toast
+
+<PageTitle>受信メール</PageTitle>
+
+<div class="page-head">
+    <h2>受信メール</h2>
+    <span class="spacer"></span>
+    @if (Processor.IsRunning)
+    {
+        <FluentProgressRing Width="18px" />
+        <span class="sub">@Processor.Progress</span>
+    }
+    else if (Processor.LastRun is { } run)
+    {
+        <span class="sub">
+            前回 @StatusDisplay.Local(run.FinishedAtUtc)：取り込み @run.Imported 件 / 解析 @run.Analyzed 件@(run.Failed > 0 ? $" / 失敗 {run.Failed} 件" : "")
+        </span>
+    }
+    <FluentButton Appearance="Appearance.Accent" IconStart="@(new Icons.Regular.Size20.ArrowSync())" Disabled="Processor.IsRunning" OnClick="RunAsync">
+        取り込み・解析
+    </FluentButton>
+</div>
+
+<div class="filters">
+    @foreach (var (key, label) in Filters)
+    {
+        <FluentButton Appearance="@(_filter == key ? Appearance.Accent : Appearance.Outline)" OnClick="@(() => _filter = key)">
+            @label（@Count(key)）
+        </FluentButton>
+    }
+</div>
+
+<div class="panel">
+    @if (_rows.Count == 0)
+    {
+        <p class="sub">メールがありません。「取り込み・解析」を押すと、設定したメールフォルダから取り込みます。</p>
+    }
+    else
+    {
+        <FluentDataGrid Items="@Visible" TGridItem="MailRow" ShowHover="true" Class="clickable-grid"
+                        GridTemplateColumns="110px 160px minmax(140px, 1fr) minmax(200px, 2fr) 90px 60px"
+                        OnRowClick="@((FluentDataGridRow<MailRow> row) => Open(row.Item))">
+            <TemplateColumn Title="状態">
+                <span class="@StatusDisplay.CssClass(context.Status)">@StatusDisplay.Label(context.Status)</span>
+            </TemplateColumn>
+            <PropertyColumn Title="受信日時" Property="@(m => m.ReceivedAt)" Format="yyyy/MM/dd HH:mm" Sortable="true" IsDefaultSortColumn="true" InitialSortDirection="SortDirection.Descending" />
+            <PropertyColumn Title="差出人" Property="@(m => m.From)" Sortable="true" />
+            <PropertyColumn Title="件名" Property="@(m => m.Subject)" />
+            <PropertyColumn Title="自信度" Property="@(m => m.Confidence)" Format="P0" Sortable="true" />
+            <TemplateColumn Title="確認">
+                @if (context.IsReviewed)
+                {
+                    <FluentIcon Value="@(new Icons.Regular.Size16.PersonAvailable())" Title="人が確認済み" />
+                }
+            </TemplateColumn>
+        </FluentDataGrid>
+    }
+</div>
+
+@code {
+    private static readonly (string Key, string Label)[] Filters =
+    [
+        ("all", "すべて"),
+        (nameof(MailStatus.NeedsReview), "要確認"),
+        (nameof(MailStatus.Registered), "発注"),
+        (nameof(MailStatus.NotOrder), "発注以外"),
+        (nameof(MailStatus.Failed), "解析失敗"),
+    ];
+
+    private List<MailRow> _rows = [];
+    private string _filter = "all";
+
+    private IQueryable<MailRow> Visible =>
+        (_filter == "all" ? _rows : _rows.Where(r => r.Status.ToString() == _filter)).AsQueryable();
+
+    private int Count(string key) => key == "all" ? _rows.Count : _rows.Count(r => r.Status.ToString() == key);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Processor.StateChanged += OnChanged;
+        Review.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var mails = await db.Mails
+            .Select(m => new { m.Id, m.Status, m.ReceivedAt, m.FromName, m.FromAddress, m.Subject, m.Confidence, m.ReviewedAt })
+            .ToListAsync();
+        _rows = mails
+            .Select(m => new MailRow(
+                m.Id,
+                m.Status,
+                DateTime.SpecifyKind(m.ReceivedAt, DateTimeKind.Utc).ToLocalTime(),
+                string.IsNullOrEmpty(m.FromName) ? m.FromAddress : m.FromName,
+                m.Subject,
+                m.Confidence,
+                m.ReviewedAt is not null))
+            .ToList();
+    }
+
+    private async Task RunAsync()
+    {
+        var result = await Processor.RunAsync();
+        if (result.Error is { } error) Toast.ShowError("取り込みに失敗しました: " + error);
+        else Toast.ShowSuccess($"取り込み {result.Imported} 件、解析 {result.Analyzed} 件" + (result.Failed > 0 ? $"（失敗 {result.Failed} 件）" : ""));
+    }
+
+    private void Open(MailRow? row)
+    {
+        if (row is not null) Nav.NavigateTo($"mails/{row.Id}");
+    }
+
+    private void OnChanged() => InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Processor.StateChanged -= OnChanged;
+        Review.Changed -= OnChanged;
+    }
+
+    private sealed record MailRow(int Id, MailStatus Status, DateTime ReceivedAt, string From, string Subject, double? Confidence, bool IsReviewed);
+}

@@ -1,0 +1,22 @@
+[
+  { "file": "01_formal_bullets.eml", "isOrder": true, "items": 2 },
+  { "file": "02_casual.eml", "isOrder": true, "items": 2 },
+  { "file": "03_block_format.eml", "isOrder": true, "items": 2 },
+  { "file": "04_table.eml", "isOrder": true, "items": 3 },
+  { "file": "05_reply_after_quote.eml", "isOrder": true, "items": 2 },
+  { "file": "06_english.eml", "isOrder": true, "items": 2 },
+  { "file": "07_html_table.eml", "isOrder": true, "items": 2 },
+  { "file": "08_additional.eml", "isOrder": true, "items": 1 },
+  { "file": "09_quote_request.eml", "isOrder": false, "items": 0 },
+  { "file": "10_stock_inquiry.eml", "isOrder": false, "items": 0 },
+  { "file": "11_invoice.eml", "isOrder": false, "items": 0 },
+  { "file": "12_newsletter.eml", "isOrder": false, "items": 0 },
+  { "file": "13_cancel.eml", "isOrder": false, "items": 0 },
+  { "file": "14_shipping_status.eml", "isOrder": false, "items": 0 },
+  { "file": "15_thanks.eml", "isOrder": false, "items": 0 },
+  { "file": "16_terse_memo.eml", "isOrder": true, "items": 1 },
+  { "file": "17_attachment_summary.eml", "isOrder": true, "items": 2 },
+  { "file": "18_internal_meeting.eml", "isOrder": false, "items": 0 },
+  { "file": "19_question_form_order.eml", "isOrder": true, "items": 2 },
+  { "file": "20_system_notice.eml", "isOrder": false, "items": 0 }
+]

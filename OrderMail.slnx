@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OrderMail.Core/OrderMail.Core.csproj" />
+    <Project Path="src/OrderMail.Web/OrderMail.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OrderMail.Tests/OrderMail.Tests.csproj" />
+  </Folder>
+</Solution>

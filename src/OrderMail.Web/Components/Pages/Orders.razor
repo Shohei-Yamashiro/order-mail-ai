@@ -1,0 +1,67 @@
+@page "/orders"
+@inject IDbContextFactory<OrderMailDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>発注一覧</PageTitle>
+
+<div class="page-head">
+    <h2>発注一覧</h2>
+    <span class="spacer"></span>
+    <span class="sub">@_rows.Count 件</span>
+</div>
+
+<div class="panel">
+    @if (_rows.Count == 0)
+    {
+        <p class="sub">登録された発注はまだありません。</p>
+    }
+    else
+    {
+        <FluentDataGrid Items="@_rows.AsQueryable()" TGridItem="OrderRow" ShowHover="true" Class="clickable-grid"
+                        GridTemplateColumns="160px minmax(160px, 1fr) minmax(240px, 2fr) 110px 110px 100px"
+                        OnRowClick="@((FluentDataGridRow<OrderRow> row) => Open(row.Item))">
+            <PropertyColumn Title="受信日時" Property="@(o => o.ReceivedAt)" Format="yyyy/MM/dd HH:mm" Sortable="true" IsDefaultSortColumn="true" InitialSortDirection="SortDirection.Descending" />
+            <PropertyColumn Title="発注元" Property="@(o => o.Customer)" Sortable="true" />
+            <PropertyColumn Title="明細" Property="@(o => o.Summary)" />
+            <PropertyColumn Title="金額" Tooltip="true" TooltipText="@(o => "単価が全行にある場合のみ（税抜）")" Property="@(o => o.Amount)" Format="#,0" Align="Align.End" />
+            <PropertyColumn Title="希望納期" Property="@(o => o.DeliveryDate)" Format="yyyy/MM/dd" Sortable="true" />
+            <TemplateColumn Title="登録">
+                <span class="@BadgeClass(context)">@(context.ByHuman ? "確認済み" : "自動")</span>
+            </TemplateColumn>
+        </FluentDataGrid>
+    }
+</div>
+
+@code {
+    private List<OrderRow> _rows = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var orders = await db.Orders.Include(o => o.Items).Include(o => o.ReceivedMail).AsNoTracking().ToListAsync();
+        _rows = orders.Select(o =>
+        {
+            var items = o.Items.OrderBy(i => i.LineNo).ToList();
+            var summary = items.Count == 0 ? "" : $"{items[0].ProductName} ×{items[0].Quantity:0.##}{items[0].Unit}" + (items.Count > 1 ? $" ほか{items.Count - 1}件" : "");
+            decimal? amount = items.All(i => i.UnitPrice is not null) && items.Count > 0 ? items.Sum(i => i.Quantity * i.UnitPrice!.Value) : null;
+            var customer = o.CustomerCompany ?? o.CustomerName ?? o.ReceivedMail?.FromName ?? "";
+            return new OrderRow(
+                o.ReceivedMailId,
+                DateTime.SpecifyKind(o.ReceivedMail!.ReceivedAt, DateTimeKind.Utc).ToLocalTime(),
+                customer,
+                summary,
+                amount,
+                o.DeliveryDate?.ToDateTime(TimeOnly.MinValue),
+                o.RegisteredBy == RegisteredBy.Human);
+        }).ToList();
+    }
+
+    private static string BadgeClass(OrderRow row) => row.ByHuman ? "badge badge-order" : "badge";
+
+    private void Open(OrderRow? row)
+    {
+        if (row is not null) Nav.NavigateTo($"mails/{row.MailId}");
+    }
+
+    private sealed record OrderRow(int MailId, DateTime ReceivedAt, string Customer, string Summary, decimal? Amount, DateTime? DeliveryDate, bool ByHuman);
+}

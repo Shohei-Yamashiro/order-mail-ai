@@ -1,0 +1,29 @@
+From: 購買課 鈴木 <suzuki@kitakaze-seiki.example>
+To: orders@sample-shoji.example
+Subject: 【注文】作業用品の件
+Date: Fri, 02 Oct 2026 10:05:00 +0900
+Message-ID: <sample-03@kitakaze-seiki.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+サンプル商事 ご担当者様
+
+北風精機株式会社 購買課の鈴木と申します。
+以下の内容で注文させていただきます。
+
+品名：ニトリル手袋 Mサイズ（100枚入）
+数量：30箱
+単価：850円
+
+品名：養生テープ 緑 50mm
+数量：60巻
+単価：210円
+
+希望納期：2026/10/16
+納品先：北風精機株式会社 第二工場
+
+ご確認のほどよろしくお願いいたします。
+
+北風精機株式会社
+購買課 鈴木 一郎

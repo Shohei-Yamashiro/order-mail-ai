@@ -1,0 +1,15 @@
+From: 受発注ポータル <no-reply@portal.example>
+To: orders@sample-shoji.example
+Subject: 【重要】パスワード有効期限のお知らせ
+Date: Thu, 08 Oct 2026 09:00:00 +0900
+Message-ID: <sample-20@portal.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+受発注ポータルをご利用いただきありがとうございます。
+
+ご利用中のアカウントのパスワードが7日後に有効期限を迎えます。
+ログイン後、マイページからパスワードを変更してください。
+
+※本メールは送信専用です。

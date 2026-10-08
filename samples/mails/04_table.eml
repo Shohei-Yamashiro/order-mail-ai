@@ -1,0 +1,23 @@
+From: 高橋 美咲 <m.takahashi@minato-foods.example>
+To: orders@sample-shoji.example
+Subject: 10月分 消耗品発注
+Date: Fri, 02 Oct 2026 16:22:00 +0900
+Message-ID: <sample-04@minato-foods.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+サンプル商事株式会社 御中
+
+みなとフーズの高橋です。
+10月分の消耗品を発注いたします。
+
+| 品番 | 品名 | 数量 | 単位 |
+| KP-100 | キッチンペーパー | 12 | ケース |
+| GB-45 | ゴミ袋 45L | 8 | ケース |
+| AL-01 | アルコール除菌スプレー | 24 | 本 |
+
+10/14着でお願いします。
+
+みなとフーズ株式会社
+店舗運営部 高橋 美咲

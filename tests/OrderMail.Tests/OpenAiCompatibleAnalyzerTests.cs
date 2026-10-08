@@ -1,0 +1,96 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using OrderMail.Core.Analysis;
+using OrderMail.Core.Settings;
+
+namespace OrderMail.Tests;
+
+public class OpenAiCompatibleAnalyzerTests
+{
+    private const string OrderJson = """{"is_order": true, "confidence": 0.95, "reason": "r", "customer_company": null, "customer_name": null, "delivery_date": null, "notes": null, "items": [{"product_name": "封筒", "quantity": 100, "unit": "枚", "unit_price": null}]}""";
+
+    private static readonly MailInput Mail = new("発注", "a@example.com", "A", "封筒を100枚お願いします", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
+
+    [Fact]
+    public async Task Sends_schema_and_api_key_to_chat_completions()
+    {
+        var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(OrderJson)));
+        var analyzer = Create(handler, new AiSettings { Endpoint = "https://api.example.com/v1/", Model = "m1", ApiKey = "secret" });
+
+        var result = await analyzer.AnalyzeAsync(Mail, CancellationToken.None);
+
+        Assert.True(result.IsOrder);
+        Assert.Equal("封筒", Assert.Single(result.Items).ProductName);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("https://api.example.com/v1/chat/completions", request.Url);
+        Assert.Equal("Bearer secret", request.Authorization);
+        Assert.Equal("m1", request.Body["model"]!.GetValue<string>());
+        Assert.Equal("json_schema", request.Body["response_format"]!["type"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task Falls_back_to_plain_json_when_schema_is_rejected()
+    {
+        var handler = new FakeHandler(body => body["response_format"]?["type"]?.GetValue<string>() == "json_schema"
+            ? Reply(HttpStatusCode.BadRequest, """{"error": "response_format not supported"}""")
+            : Reply(HttpStatusCode.OK, Completion(OrderJson)));
+        var analyzer = Create(handler, new AiSettings { Endpoint = "http://localhost:11434/v1", Model = "m" });
+
+        var result = await analyzer.AnalyzeAsync(Mail, CancellationToken.None);
+
+        Assert.True(result.IsOrder);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Equal("json_object", handler.Requests[1].Body["response_format"]!["type"]!.GetValue<string>());
+        Assert.Null(handler.Requests[1].Authorization);
+    }
+
+    [Fact]
+    public async Task Retries_once_when_output_is_not_json()
+    {
+        var replies = new Queue<string>(["すみません、発注です。", OrderJson]);
+        var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(replies.Dequeue())));
+        var analyzer = Create(handler, new AiSettings { Model = "m" });
+
+        var result = await analyzer.AnalyzeAsync(Mail, CancellationToken.None);
+
+        Assert.True(result.IsOrder);
+        Assert.Equal(4, handler.Requests[1].Body["messages"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public async Task Reports_server_errors_clearly()
+    {
+        var handler = new FakeHandler(_ => Reply(HttpStatusCode.Unauthorized, """{"error": "invalid api key"}"""));
+        var analyzer = Create(handler, new AiSettings { Model = "m" });
+
+        var e = await Assert.ThrowsAsync<AiConnectionException>(() => analyzer.AnalyzeAsync(Mail, CancellationToken.None));
+
+        Assert.Contains("401", e.Message);
+        Assert.Contains("invalid api key", e.Message);
+    }
+
+    private static OpenAiCompatibleOrderAnalyzer Create(FakeHandler handler, AiSettings settings) =>
+        new(new HttpClient(handler), settings);
+
+    private static string Completion(string content) =>
+        JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content } } } });
+
+    private static HttpResponseMessage Reply(HttpStatusCode status, string json) =>
+        new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+
+    private sealed record CapturedRequest(string Url, string? Authorization, JsonNode Body);
+
+    private sealed class FakeHandler(Func<JsonNode, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public List<CapturedRequest> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
+            Requests.Add(new CapturedRequest(request.RequestUri!.ToString(), request.Headers.Authorization?.ToString(), body));
+            return respond(body);
+        }
+    }
+}

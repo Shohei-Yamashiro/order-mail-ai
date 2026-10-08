@@ -1,0 +1,14 @@
+From: 田中 <tanaka@kawasemi-denki.example>
+To: orders@sample-shoji.example
+Subject: 発注
+Date: Wed, 07 Oct 2026 15:48:00 +0900
+Message-ID: <sample-16@kawasemi-denki.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+品番 KT-200（延長コード 3m）
+20本
+10月20日着希望
+
+かわせみ電機 田中

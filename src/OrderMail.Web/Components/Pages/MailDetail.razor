@@ -1,0 +1,207 @@
+@page "/mails/{Id:int}"
+@inject IDbContextFactory<OrderMailDbContext> DbFactory
+@inject MailProcessor Processor
+@inject ReviewService Review
+@inject NavigationManager Nav
+@inject IToastService Toast
+
+<PageTitle>@(_mail?.Subject ?? "メール")</PageTitle>
+
+<div class="page-head">
+    <FluentButton Appearance="Appearance.Stealth" IconStart="@(new Icons.Regular.Size20.ArrowLeft())" OnClick="@(() => Nav.NavigateTo("mails"))">一覧へ</FluentButton>
+    <h2>@(_mail?.Subject ?? "")</h2>
+    <span class="spacer"></span>
+    @if (_mail is not null)
+    {
+        <span class="@StatusDisplay.CssClass(_mail.Status)">@StatusDisplay.Label(_mail.Status)</span>
+        @if (_mail.IsReviewed)
+        {
+            <span class="sub">人が確認済み（@StatusDisplay.Local(_mail.ReviewedAt!.Value)）</span>
+        }
+        else if (_mail.Order is not null)
+        {
+            <span class="sub">AI が自動登録</span>
+        }
+    }
+</div>
+
+@if (_mail is null)
+{
+    <p class="sub">@(_notFound ? "メールが見つかりません。" : "読み込み中…")</p>
+}
+else
+{
+    <div class="detail">
+        <section class="panel">
+            <dl class="mail-meta">
+                <dt>差出人</dt>
+                <dd>@_mail.FromName &lt;@_mail.FromAddress&gt;</dd>
+                <dt>宛先</dt>
+                <dd>@_mail.To</dd>
+                <dt>受信日時</dt>
+                <dd>@StatusDisplay.Local(_mail.ReceivedAt)</dd>
+            </dl>
+            <pre class="mail-body">@_mail.Body</pre>
+        </section>
+
+        <section class="panel">
+            @if (_latest is not null)
+            {
+                <div class="ai-result">
+                    <strong>@(_latest.IsOrder ? "発注と判定" : "発注ではないと判定")</strong>
+                    （自信度 @StatusDisplay.Confidence(_latest.Confidence)・@_latest.Analyzer・@(_latest.ElapsedMs) ms）
+                    <div>@_latest.Reason</div>
+                </div>
+            }
+            @if (_mail.LastError is { } error)
+            {
+                <FluentMessageBar Intent="MessageIntent.Error" AllowDismiss="false" Title="解析に失敗しました">@error</FluentMessageBar>
+            }
+
+            <h3>発注内容</h3>
+            <div class="form-grid">
+                <div class="field"><FluentTextField Label="会社名" @bind-Value="_draft.CustomerCompany" /></div>
+                <div class="field"><FluentTextField Label="担当者" @bind-Value="_draft.CustomerName" /></div>
+                <div class="field"><FluentDatePicker Label="希望納期" @bind-Value="_draft.DeliveryDate" /></div>
+                <div></div>
+                <div class="field wide"><FluentTextArea Label="備考" Rows="2" Resize="TextAreaResize.Vertical" @bind-Value="_draft.Notes" /></div>
+            </div>
+
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th style="width: 46%">品名</th>
+                        <th style="width: 16%">数量</th>
+                        <th style="width: 14%">単位</th>
+                        <th style="width: 18%">単価（円）</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _draft.Items)
+                    {
+                        <tr>
+                            <td><FluentTextField @bind-Value="item.ProductName" /></td>
+                            <td><FluentNumberField TValue="decimal" @bind-Value="item.Quantity" Min="0" /></td>
+                            <td><FluentTextField @bind-Value="item.Unit" /></td>
+                            <td><FluentNumberField TValue="decimal?" @bind-Value="item.UnitPrice" Min="0" /></td>
+                            <td>
+                                <FluentButton Appearance="Appearance.Stealth" IconStart="@(new Icons.Regular.Size16.Delete())" Title="行を削除"
+                                              OnClick="@(() => _draft.Items.Remove(item))" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Add())" OnClick="@(() => _draft.Items.Add(new OrderDraftItem()))">明細を追加</FluentButton>
+
+            @if (_errors is not null)
+            {
+                <div class="errors">@_errors</div>
+            }
+
+            <div class="actions">
+                <FluentButton Appearance="Appearance.Accent" IconStart="@(new Icons.Regular.Size20.Checkmark())" Disabled="_busy" OnClick="ConfirmAsync">
+                    @(_mail.Order is null ? "発注として登録" : "この内容で確定")
+                </FluentButton>
+                <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size20.Dismiss())" Disabled="_busy" OnClick="NotOrderAsync">発注ではない</FluentButton>
+                <span class="spacer"></span>
+                <FluentButton Appearance="Appearance.Stealth" IconStart="@(new Icons.Regular.Size20.ArrowClockwise())" Disabled="@(_busy || Processor.IsRunning)" OnClick="ReanalyzeAsync">再解析</FluentButton>
+                @if (_mail.IsReviewed)
+                {
+                    <FluentButton Appearance="Appearance.Stealth" Disabled="_busy" OnClick="ReopenAsync">確認を取り消す</FluentButton>
+                }
+            </div>
+
+            @if (_mail.Analyses.Count > 1)
+            {
+                <div class="history">
+                    <strong>解析履歴</strong>
+                    <table>
+                        <tr><th>日時</th><th>解析</th><th>判定</th><th>自信度</th><th>時間</th></tr>
+                        @foreach (var a in _mail.Analyses.OrderByDescending(a => a.CreatedAt))
+                        {
+                            <tr>
+                                <td>@StatusDisplay.Local(a.CreatedAt)</td>
+                                <td>@a.Analyzer</td>
+                                <td>@(a.IsOrder ? "発注" : "発注以外")</td>
+                                <td>@StatusDisplay.Confidence(a.Confidence)</td>
+                                <td>@a.ElapsedMs ms</td>
+                            </tr>
+                        }
+                    </table>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private ReceivedMail? _mail;
+    private MailAnalysis? _latest;
+    private OrderDraft _draft = new();
+    private string? _errors;
+    private bool _busy;
+    private bool _notFound;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _mail = await db.Mails
+            .Include(m => m.Analyses)
+            .Include(m => m.Order).ThenInclude(o => o!.Items)
+            .AsNoTracking()
+            .SingleOrDefaultAsync(m => m.Id == Id);
+        _notFound = _mail is null;
+        if (_mail is null) return;
+
+        _latest = _mail.Analyses.MaxBy(a => a.CreatedAt);
+        _draft = _mail.Order is not null
+            ? OrderDraft.From(_mail.Order)
+            : _latest is not null ? OrderDraft.From(ExtractionJson.Parse(_latest.ResultJson)) : new OrderDraft();
+        if (_draft.Items.Count == 0) _draft.Items.Add(new OrderDraftItem());
+        _errors = null;
+    }
+
+    private Task ConfirmAsync() => RunAsync(async () =>
+    {
+        await Review.ConfirmOrderAsync(Id, _draft);
+        Toast.ShowSuccess("発注として登録しました。");
+    });
+
+    private Task NotOrderAsync() => RunAsync(async () =>
+    {
+        await Review.MarkNotOrderAsync(Id);
+        Toast.ShowInfo("発注ではないメールとして確定しました。");
+    });
+
+    private Task ReopenAsync() => RunAsync(() => Review.ReopenAsync(Id));
+
+    private Task ReanalyzeAsync() => RunAsync(async () =>
+    {
+        if (await Processor.ReanalyzeAsync(Id)) Toast.ShowSuccess("再解析しました。");
+        else Toast.ShowError("再解析に失敗しました。");
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (ArgumentException e)
+        {
+            _errors = e.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

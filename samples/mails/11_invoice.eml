@@ -1,0 +1,16 @@
+From: 経理部 <keiri@aozora-kogyo.example>
+To: orders@sample-shoji.example
+Subject: 9月分請求書の受領について
+Date: Tue, 06 Oct 2026 14:00:00 +0900
+Message-ID: <sample-11@aozora-kogyo.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+株式会社サンプル商事 経理ご担当者様
+
+あおぞら工業 経理部です。
+9月分の請求書を受領いたしました。
+お支払いは10月末日に指定口座へお振込みいたします。
+
+以上、よろしくお願いいたします。
