@@ -1,7 +1,7 @@
 # テスト仕様書（発注メール AI 仕分け）
 
 このファイルは `scripts/TestReport.cs` がテストコードの説明（`[Spec]` 属性）から自動で作ります。直接編集せず、テストの `[Spec]` を直してください。
-最新の実行結果は、`scripts/publish.ps1` を実行すると `OrderMail-latest/test-report.md` に出力されます。
+最新の実行結果は、`scripts/publish.ps1` を実行すると `OrderMail-latest/test-report.md` に出力されます。CI では成果物 `test-report` に保存されます。
 
 ## 1. 目的と範囲
 
