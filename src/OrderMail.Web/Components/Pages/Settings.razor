@@ -5,6 +5,9 @@
 @inject AnalyzerFactory Analyzers
 @inject MailSourceFactory Sources
 @inject PromptEvaluator Evaluator
+@inject ReviewService Review
+@inject MailProcessor Processor
+@inject IDialogService Dialogs
 @inject IToastService Toast
 @implements IDisposable
 
@@ -181,6 +184,16 @@
         </div>
     </section>
 
+    <section class="panel debug-panel">
+        <h3>デバッグ</h3>
+        <p class="sub">人の確認（「発注として登録」「発注ではない」）をすべて取り消し、確認前の状態に戻します。人が確定した発注は削除され、対象のメールは「未解析」に戻ります。「受信メール」で「取り込み・解析」を押すと、今の設定で解析し直します。人が確認していない自動登録の発注と、解析履歴は残ります。</p>
+        <div class="actions" style="margin-top: 0">
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowUndo())"
+                          Disabled="@(_reviewedCount == 0 || _evaluating || Processor.IsRunning)" OnClick="ClearReviewsAsync">人の確認をすべて取り消す</FluentButton>
+            <span class="sub" style="align-self: center">確認済み：@(_reviewedCount?.ToString() ?? "…") 件</span>
+        </div>
+    </section>
+
     <p class="sub">API キーと IMAP パスワードは Windows のユーザーごとに暗号化して保存します。</p>
 </div>
 
@@ -227,10 +240,28 @@
     private EvaluationReport? _previousReport;
     private CancellationTokenSource? _evalCts;
 
-    protected override void OnInitialized()
+    private int? _reviewedCount;
+
+    protected override async Task OnInitializedAsync()
     {
         _s = Store.Current;
         _instructions = OrderPrompt.Instructions(_s.Ai);
+        _reviewedCount = await Review.CountReviewedAsync();
+    }
+
+    private async Task ClearReviewsAsync()
+    {
+        var dialog = await Dialogs.ShowConfirmationAsync(
+            $"人が確認した {_reviewedCount} 件のメールを確認前に戻し、人が確定した発注を削除します。元に戻せません。よろしいですか？",
+            "取り消す", "キャンセル", "人の確認をすべて取り消す");
+        var result = await dialog.Result;
+        if (result.Cancelled) return;
+
+        var count = await Review.ClearAllReviewsAsync();
+        _reviewedCount = await Review.CountReviewedAsync();
+        _report = null;
+        _previousReport = null;
+        Toast.ShowSuccess($"{count} 件の確認を取り消しました。「受信メール」で「取り込み・解析」を押すと解析し直します。");
     }
 
     public void Dispose() => _evalCts?.Cancel();

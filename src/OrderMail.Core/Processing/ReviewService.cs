@@ -51,6 +51,33 @@ public sealed class ReviewService(IDbContextFactory<OrderMailDbContext> dbFactor
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// For debugging: forgets every human decision. Orders a person confirmed are deleted and the mails
+    /// return to unanalyzed so the next run analyzes them again. Unreviewed mails and analysis history are kept.
+    /// </summary>
+    /// <returns>The number of mails that were reviewed.</returns>
+    public async Task<int> ClearAllReviewsAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var mails = await db.Mails.Include(m => m.Order).Where(m => m.ReviewedAt != null).ToListAsync(ct);
+        foreach (var mail in mails)
+        {
+            if (mail.Order is not null) db.Orders.Remove(mail.Order);
+            mail.ReviewedAt = null;
+            mail.Status = MailStatus.Unanalyzed;
+            mail.Confidence = null;
+        }
+        await db.SaveChangesAsync(ct);
+        Changed?.Invoke();
+        return mails.Count;
+    }
+
+    public async Task<int> CountReviewedAsync(CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.Mails.CountAsync(m => m.ReviewedAt != null, ct);
+    }
+
     private static Task<ReceivedMail> LoadAsync(OrderMailDbContext db, int mailId, CancellationToken ct) =>
         db.Mails.Include(m => m.Order).ThenInclude(o => o!.Items).SingleAsync(m => m.Id == mailId, ct);
 }

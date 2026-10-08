@@ -261,6 +261,10 @@ h1:focus {
     overflow: auto;
 }
 
+.debug-panel {
+    border-style: dashed;
+}
+
 .prompt-preview {
     max-height: 480px;
 }

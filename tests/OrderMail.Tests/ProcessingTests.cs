@@ -217,6 +217,46 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    public async Task Clearing_reviews_resets_human_decisions_and_reanalyzes_them()
+    {
+        var processor = _services.GetRequiredService<MailProcessor>();
+        var review = _services.GetRequiredService<ReviewService>();
+        await processor.RunAsync();
+        int confirmedId = await SampleIdAsync("02"), dismissedId = await SampleIdAsync("13"), autoId = await SampleIdAsync("01");
+        await review.ConfirmOrderAsync(confirmedId, new OrderDraft { CustomerCompany = "人が入力", Items = [new() { ProductName = "ボールペン", Quantity = 50, Unit = "本" }] });
+        await review.MarkNotOrderAsync(dismissedId);
+        int analyses;
+        await using (var db = Db()) analyses = await db.Analyses.CountAsync();
+
+        Assert.Equal(2, await review.ClearAllReviewsAsync());
+
+        await using (var db = Db())
+        {
+            var cleared = await db.Mails.Include(m => m.Order).Where(m => m.Id == confirmedId || m.Id == dismissedId).ToListAsync();
+            Assert.All(cleared, m =>
+            {
+                Assert.False(m.IsReviewed);
+                Assert.Equal(MailStatus.Unanalyzed, m.Status);
+                Assert.Null(m.Order);
+            });
+            var auto = await db.Mails.Include(m => m.Order).SingleAsync(m => m.Id == autoId);
+            Assert.Equal(MailStatus.Registered, auto.Status);
+            Assert.Equal(RegisteredBy.Auto, auto.Order!.RegisteredBy);
+            Assert.Equal(analyses, await db.Analyses.CountAsync());
+        }
+        Assert.Equal(0, await review.CountReviewedAsync());
+
+        var rerun = await processor.RunAsync();
+        Assert.Equal(2, rerun.Analyzed);
+        await using (var db = Db())
+        {
+            var reanalyzed = await db.Mails.Include(m => m.Order).SingleAsync(m => m.Id == confirmedId);
+            Assert.NotEqual(MailStatus.Unanalyzed, reanalyzed.Status);
+            Assert.NotEqual("人が入力", reanalyzed.Order?.CustomerCompany);
+        }
+    }
+
+    [Fact]
     public void Settings_keep_prompt_settings_and_unchanged_rules_as_null()
     {
         var path = Path.Combine(_dataDir, "prompt-test.json");
