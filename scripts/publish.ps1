@@ -1,5 +1,5 @@
 # Builds the zip for distribution: artifacts\OrderMail-win-x64.zip
-# and refreshes OrderMail-latest\ at the repository root for manual checking.
+# and refreshes OrderMail-latest\ at the repository root for manual checking, with the test report.
 # The exe is self-contained, so the target PC needs no .NET installation.
 param(
     [string]$Runtime = "win-x64"
@@ -31,3 +31,11 @@ New-Item -ItemType Directory -Force $latest | Out-Null
 Get-ChildItem $latest | Where-Object { $_.Name -ne "data" } | Remove-Item -Recurse -Force
 Copy-Item (Join-Path $out "*") $latest -Recurse
 Write-Host "Updated $latest\OrderMail.exe"
+
+# Test specification (docs\test-spec.md) and results (OrderMail-latest\test-report.md).
+dotnet run (Join-Path $root "scripts\TestReport.cs") -- $root $latest
+switch ($LASTEXITCODE) {
+    0 { }
+    1 { Write-Warning "Some tests failed. See $latest\test-report.md" }
+    default { Write-Warning "The test report could not be created." }
+}

@@ -42,6 +42,7 @@ public sealed class ProcessingTests : IDisposable
     private OrderMailDbContext Db() => _services.GetRequiredService<IDbContextFactory<OrderMailDbContext>>().CreateDbContext();
 
     [Fact]
+    [Spec(SpecCategories.Processing, "サンプルを 1 回だけ取り込んで解析する", "サンプル 20 通を取り込んで全件解析し、2 回目は同じメールを取り込まない。自動登録した発注には明細があり、それ以外には発注データがない。要確認も含まれる。")]
     public async Task Run_imports_samples_once_and_sorts_them_by_confidence()
     {
         var processor = _services.GetRequiredService<MailProcessor>();
@@ -69,6 +70,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "人の確認は再解析で上書きされない", "人が確定した発注と「発注ではない」の判定は、再解析しても変わらない（解析履歴は増える）。")]
     public async Task Review_decisions_survive_reanalysis()
     {
         var processor = _services.GetRequiredService<MailProcessor>();
@@ -103,6 +105,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "不正な発注内容は確定できない", "品名が空・数量 0 の明細では確定できず、品名と数量のエラーを返す。")]
     public async Task Confirm_rejects_invalid_draft()
     {
         var processor = _services.GetRequiredService<MailProcessor>();
@@ -118,6 +121,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "解析の失敗を記録し、次回やり直す", "AI に接続できないとメールを「解析失敗」にして理由を残し、次の実行で解析し直す。")]
     public async Task Failed_analysis_is_marked_and_retried_next_run()
     {
         var store = _services.GetRequiredService<SettingsStore>();
@@ -156,6 +160,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Examples, "手本は似た確認済みメールから選ぶ", "同じ差出人、同じドメイン、文面の似たものの順に選び、最も似たものを最後に並べる。解析するメール自身と未確認のメールは使わない。手本数 0 なら選ばない。")]
     public async Task Examples_are_confirmed_mails_most_similar_last()
     {
         await _services.GetRequiredService<MailProcessor>().RunAsync();
@@ -182,6 +187,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Examples, "確認済みメールで評価する", "確定内容と比べて判定・明細・会社名・納期の一致数と自動確定数を数え、違ったメールを特定する。評価しても DB は変わらない。")]
     public async Task Evaluation_compares_with_confirmed_answers_without_changing_data()
     {
         await _services.GetRequiredService<MailProcessor>().RunAsync();
@@ -217,6 +223,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "人の確認をすべて取り消せる（デバッグ用）", "確認済みのメールを未解析に戻して人が確定した発注を削除し、自動登録の発注と解析履歴は残す。次の実行で解析し直す。")]
     public async Task Clearing_reviews_resets_human_decisions_and_reanalyzes_them()
     {
         var processor = _services.GetRequiredService<MailProcessor>();
@@ -257,6 +264,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Settings, "プロンプトの設定を保存する", "当社名・編集したルール・手本数を保存して読み戻せる。ルールが未編集なら既定のルールを使う。")]
     public void Settings_keep_prompt_settings_and_unchanged_rules_as_null()
     {
         var path = Path.Combine(_dataDir, "prompt-test.json");
@@ -276,6 +284,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Settings, "API キーとパスワードを暗号化して保存する", "設定ファイルに API キーと IMAP パスワードが平文で残らず、読み戻すと元の値になる。")]
     public void Settings_encrypt_secrets_on_disk()
     {
         var path = Path.Combine(_dataDir, "secret-test.json");
@@ -295,6 +304,7 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Import, "日本語メールと HTML メールを読み込む", ".eml フォルダから 20 通を読み、日本語の件名を復元し、HTML の表を「|」区切りのテキストにする（タグは残さない）。")]
     public async Task Eml_source_decodes_japanese_headers_and_html_bodies()
     {
         var mails = await new EmlFolderMailSource(Samples.MailFolder).FetchAsync(_ => false, CancellationToken.None);

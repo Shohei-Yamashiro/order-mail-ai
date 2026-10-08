@@ -7,6 +7,7 @@ namespace OrderMail.Tests;
 public class ExtractionJsonTests
 {
     [Fact]
+    [Spec(SpecCategories.Parsing, "コードブロックや思考部分に囲まれた JSON を読む", "<think> ブロックや ```json で囲まれた応答でも本体の JSON を読み、空文字は null として扱う。")]
     public void Parses_output_wrapped_in_code_fence_and_think_block()
     {
         var text = """
@@ -31,6 +32,7 @@ public class ExtractionJsonTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Parsing, "型の揺れを吸収する", "文字列の \"true\"、0〜100 の自信度、「５０本」「1,200円」のような数量・単価を読み取る。品名がない・数量 0 の明細と、読めない日付は捨てる。")]
     public void Accepts_loose_types_from_models()
     {
         var text = """
@@ -53,12 +55,14 @@ public class ExtractionJsonTests
     [InlineData("申し訳ありませんが判定できません")]
     [InlineData("{\"confidence\": 0.5}")]
     [InlineData("{\"is_order\": true,, }")]
+    [Spec(SpecCategories.Parsing, "使えない応答はエラーにする", "JSON がない・is_order がない・構文が壊れている応答は FormatException にする（3 ケース）。")]
     public void Rejects_unusable_output(string text)
     {
         Assert.Throws<FormatException>(() => ExtractionJson.Parse(text));
     }
 
     [Fact]
+    [Spec(SpecCategories.Parsing, "保存した解析結果を復元できる", "解析結果を JSON に保存して読み戻すと、元の内容と一致する。")]
     public void Round_trips_through_stored_json()
     {
         var original = new OrderExtraction
@@ -83,6 +87,7 @@ public class ExtractionJsonTests
     [InlineData(true, 0.7, 1, MailStatus.NeedsReview)]
     [InlineData(false, 0.9, 0, MailStatus.NotOrder)]
     [InlineData(false, 0.7, 0, MailStatus.NeedsReview)]
+    [Spec(SpecCategories.Processing, "自信度と明細で振り分ける", "自信度がしきい値以上なら「発注」（明細あり）か「発注以外」に自動で振り分け、しきい値未満と明細のない発注は「要確認」にする（5 ケース）。")]
     public void Registration_policy(bool isOrder, double confidence, int items, MailStatus expected)
     {
         var result = new OrderExtraction

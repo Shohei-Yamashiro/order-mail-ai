@@ -79,6 +79,8 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 ```
 
 `publish.ps1` は確認用に `OrderMail-latest\OrderMail.exe` も更新します（`data` フォルダは残します）。
+あわせてテストを実行し、テスト仕様書 `docs/test-spec.md` と、結果を含む報告書 `OrderMail-latest\test-report.md` を作ります。テスト仕様書の内容は、各テストに付けた `[Spec]` 属性（区分・項目名・確認内容）から作られます。
+テスト仕様書と報告書だけを作り直すときは、`dotnet run scripts/TestReport.cs -- . OrderMail-latest` を実行します。
 
 | フォルダ | 内容 |
 |---|---|

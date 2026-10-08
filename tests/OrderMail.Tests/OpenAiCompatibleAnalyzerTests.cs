@@ -14,6 +14,7 @@ public class OpenAiCompatibleAnalyzerTests
     private static readonly MailInput Mail = new("発注", "a@example.com", "A", "封筒を100枚お願いします", new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc));
 
     [Fact]
+    [Spec(SpecCategories.Ai, "接続先・モデル・API キー・JSON スキーマを送る", "エンドポイント末尾の「/」を補って /chat/completions に送り、モデル名・Bearer 認証・json_schema 指定が含まれる。応答から明細を読み取れる。")]
     public async Task Sends_schema_and_api_key_to_chat_completions()
     {
         var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(OrderJson)));
@@ -31,6 +32,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Ai, "JSON スキーマ非対応の接続先では自動で切り替える", "json_schema 指定が HTTP 400 で拒否されたら json_object で送り直し、解析に成功する。API キーが空なら認証ヘッダーを付けない。")]
     public async Task Falls_back_to_plain_json_when_schema_is_rejected()
     {
         var handler = new FakeHandler(body => body["response_format"]?["type"]?.GetValue<string>() == "json_schema"
@@ -47,6 +49,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Ai, "JSON でない応答には 1 回だけ出し直しを頼む", "1 回目の応答が JSON でないとき、読めなかった理由を伝えて出し直させ、2 回目の応答で解析に成功する。")]
     public async Task Retries_once_when_output_is_not_json()
     {
         var replies = new Queue<string>(["すみません、発注です。", OrderJson]);
@@ -60,6 +63,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Prompt, "手本を会話例として送る", "手本は「メール（user）と正しい答え（assistant）」の組として解析するメールの前に並ぶ。編集したルール・当社名・手本の説明が指示文に入り、既定のルールは入らない。")]
     public async Task Sends_examples_as_conversation_before_the_mail()
     {
         var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(OrderJson)));
@@ -84,6 +88,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Prompt, "既定のルールとカレンダーを指示文に入れる", "ルールが未編集なら既定の判定基準を使い、受信日・今週と来週の曜日付きカレンダー・出力形式が入る。手本がなければ手本の説明は入らない。")]
     public void System_prompt_has_default_rules_and_a_calendar_for_relative_dates()
     {
         var system = OrderPrompt.System(new AiSettings(), new DateTime(2026, 10, 8, 9, 0, 0), hasExamples: false);
@@ -99,6 +104,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Ai, "会社名に当社名が返ったら空欄に戻す", "当社名が「サンプル商事」のとき、AI が会社名を「株式会社 サンプル商事」と返しても空欄にし、明細はそのまま残す。")]
     public async Task Drops_customer_company_when_it_is_the_own_company()
     {
         var json = OrderJson.Replace("\"customer_company\": null", "\"customer_company\": \"株式会社 サンプル商事\"");
@@ -112,6 +118,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Prompt, "相対的な日付を受信日から換算する", "受信日 2026-10-08(木) に対して「今週土曜」「来週の金曜日」「再来週月曜」「明日」を正しい日付にし、「来週中」は日が決まらない表現とする。引用行と「10月9日」のような日付の表記は対象外。")]
     public void Date_hints_resolve_relative_days_from_the_received_date()
     {
         var received = new DateOnly(2026, 10, 8);
@@ -130,6 +137,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Prompt, "日付の手がかりは必要なときだけ付ける", "本文に相対的な日付があるときだけ、メールの後に「日付の手がかり」を付け足す。")]
     public void User_prompt_adds_date_hints_only_when_found()
     {
         var local = new DateTime(2026, 10, 8, 9, 0, 0, DateTimeKind.Local);
@@ -142,6 +150,7 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Ai, "接続先のエラーを分かる形で伝える", "HTTP 401 などのエラーでは、ステータスコードと接続先のメッセージを含む例外にする。")]
     public async Task Reports_server_errors_clearly()
     {
         var handler = new FakeHandler(_ => Reply(HttpStatusCode.Unauthorized, """{"error": "invalid api key"}"""));
