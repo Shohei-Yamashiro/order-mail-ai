@@ -76,6 +76,24 @@ h1:focus {
     width: 220px;
 }
 
+.selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    min-height: 32px;
+}
+
+.selection-bar fluent-button,
+.selection-bar .select-all {
+    flex-shrink: 0;
+}
+
+.selection-bar .select-all {
+    margin-left: 14px;
+    margin-right: 6px;
+}
+
 .badge {
     display: inline-block;
     min-width: 64px;

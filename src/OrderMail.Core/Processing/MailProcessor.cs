@@ -122,16 +122,37 @@ public sealed class MailProcessor(
         return new AnalysisPipeline(analyzers.Create(settings.Ai), await catalogs.OpenAsync(db, settings, ct), settings);
     }
 
-    public async Task<bool> ReanalyzeAsync(int mailId, CancellationToken ct = default)
+    public async Task<bool> ReanalyzeAsync(int mailId, CancellationToken ct = default) =>
+        (await ReanalyzeAsync([mailId], ct)).Analyzed == 1;
+
+    /// <summary>
+    /// Analyzes the given mails again with the current settings, oldest first. Mails a person reviewed only get
+    /// a new analysis record; their status and order stay as the person decided.
+    /// </summary>
+    /// <remarks>Cancelling stops before the next mail; mails already analyzed keep their new results.</remarks>
+    public async Task<(int Analyzed, int Failed)> ReanalyzeAsync(IReadOnlyCollection<int> mailIds, CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
         try
         {
             IsRunning = true;
+            List<int> ids;
+            await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            {
+                ids = await db.Mails.Where(m => mailIds.Contains(m.Id)).OrderBy(m => m.ReceivedAt).Select(m => m.Id).ToListAsync(ct);
+            }
+            if (ids.Count == 0) return (0, 0);
+
             var settings = settingsStore.Current;
             var pipeline = await CreatePipelineAsync(settings, ct);
-            Report($"再解析中（{pipeline.Analyzer.Name}）");
-            return await AnalyzeOneAsync(mailId, pipeline, settings, ct);
+            int analyzed = 0, failed = 0;
+            for (var i = 0; i < ids.Count && !ct.IsCancellationRequested; i++)
+            {
+                Report(ids.Count == 1 ? $"再解析中（{pipeline.Analyzer.Name}）" : $"再解析中 {i + 1}/{ids.Count}（{pipeline.Analyzer.Name}）");
+                if (await AnalyzeOneAsync(ids[i], pipeline, settings, CancellationToken.None)) analyzed++;
+                else failed++;
+            }
+            return (analyzed, failed);
         }
         finally
         {

@@ -424,6 +424,35 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "選んだメールをまとめて再解析する", "選んだメールだけを今の設定で解析し直して解析履歴を 1 件ずつ増やし、人が確認したメールの状態と発注は変えない。存在しないメールは無視し、中止すると残りは解析しない。")]
+    public async Task Selected_mails_are_reanalyzed_together()
+    {
+        var processor = _services.GetRequiredService<MailProcessor>();
+        await processor.RunAsync();
+        int autoId = await SampleIdAsync("01"), reviewedId = await SampleIdAsync("02"), otherId = await SampleIdAsync("03");
+        await _services.GetRequiredService<ReviewService>().ConfirmOrderAsync(reviewedId, new OrderDraft { CustomerCompany = "人が入力", Items = [new() { ProductName = "ボールペン", Quantity = 50, Unit = "本" }] });
+
+        var (analyzed, failed) = await processor.ReanalyzeAsync([autoId, reviewedId, 999_999]);
+
+        Assert.Equal((2, 0), (analyzed, failed));
+        await using (var db = Db())
+        {
+            Assert.Equal(2, await db.Analyses.CountAsync(a => a.ReceivedMailId == autoId));
+            Assert.Equal(2, await db.Analyses.CountAsync(a => a.ReceivedMailId == reviewedId));
+            Assert.Equal(1, await db.Analyses.CountAsync(a => a.ReceivedMailId == otherId));
+            var reviewed = await db.Mails.Include(m => m.Order).SingleAsync(m => m.Id == reviewedId);
+            Assert.Equal(MailStatus.Registered, reviewed.Status);
+            Assert.Equal("人が入力", reviewed.Order!.CustomerCompany);
+        }
+        Assert.False(processor.IsRunning);
+
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => processor.ReanalyzeAsync([otherId], cancelled.Token));
+        await using (var db = Db()) Assert.Equal(1, await db.Analyses.CountAsync(a => a.ReceivedMailId == otherId));
+    }
+
+    [Fact]
     [Spec(SpecCategories.Processing, "受信メールを検索する", "件名・差出人・本文と、登録した発注の会社名・品名から探す。空白で区切った語はすべてを含むものだけを返し、全角・半角と大文字・小文字の違いは無視する。空の検索はすべてを返す。")]
     public async Task Mail_search_matches_all_terms_across_mail_and_order()
     {

@@ -51,9 +51,33 @@
     }
     else
     {
+        <div class="selection-bar">
+            @if (_reanalyzeCts is not null)
+            {
+                <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Stop())" OnClick="CancelReanalyze">中止（解析中のメールの後で止めます）</FluentButton>
+            }
+            else
+            {
+                <FluentCheckbox Class="select-all" Label="すべて選択" Title="表示中のメールをすべて選択" Value="@AllVisibleSelected" ValueChanged="@((bool on) => SelectAllVisible(on))" />
+                <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
+                              Disabled="@(SelectedVisible.Count == 0 || Processor.IsRunning)" OnClick="ReanalyzeSelectedAsync">選択したメールを再解析</FluentButton>
+                <span class="sub">@(SelectedVisible.Count == 0 ? "チェックしたメールを今の設定で解析し直します（人が確認したメールは結果を変えず、履歴だけ追加）" : $"{SelectedVisible.Count} 件を選択中")</span>
+                @if (SelectedVisible.Count > 0)
+                {
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _selected.Clear())">選択を解除</FluentButton>
+                }
+            }
+        </div>
         <FluentDataGrid Items="@Visible" TGridItem="MailRow" ShowHover="true" Class="clickable-grid"
-                        GridTemplateColumns="110px 160px minmax(140px, 1fr) minmax(200px, 2fr) 90px 60px"
+                        GridTemplateColumns="40px 104px 146px minmax(90px, 1fr) minmax(140px, 2fr) 70px 48px"
                         OnRowClick="@((FluentDataGridRow<MailRow> row) => Open(row.Item))">
+            <TemplateColumn>
+                <ChildContent>
+                    <div @onclick:stopPropagation="true">
+                        <FluentCheckbox Value="@_selected.Contains(context.Id)" ValueChanged="@((bool on) => Select(context.Id, on))" />
+                    </div>
+                </ChildContent>
+            </TemplateColumn>
             <TemplateColumn Title="状態">
                 <span class="@StatusDisplay.CssClass(context.Status)">@StatusDisplay.Label(context.Status)</span>
             </TemplateColumn>
@@ -90,6 +114,45 @@
 
     private IQueryable<MailRow> Visible =>
         (_filter == "all" ? Searched : Searched.Where(r => r.Status.ToString() == _filter)).AsQueryable();
+
+    private readonly HashSet<int> _selected = [];
+    private CancellationTokenSource? _reanalyzeCts;
+
+    private List<int> SelectedVisible => Visible.Where(r => _selected.Contains(r.Id)).Select(r => r.Id).ToList();
+
+    private bool AllVisibleSelected => Visible.Any() && Visible.All(r => _selected.Contains(r.Id));
+
+    private void Select(int id, bool on)
+    {
+        if (on) _selected.Add(id);
+        else _selected.Remove(id);
+    }
+
+    private void SelectAllVisible(bool on)
+    {
+        foreach (var row in Visible) Select(row.Id, on);
+    }
+
+    private async Task ReanalyzeSelectedAsync()
+    {
+        var ids = SelectedVisible;
+        _reanalyzeCts = new CancellationTokenSource();
+        try
+        {
+            var (analyzed, failed) = await Processor.ReanalyzeAsync(ids, _reanalyzeCts.Token);
+            var stopped = analyzed + failed < ids.Count ? $"（中止：{ids.Count - analyzed - failed} 件は未実行）" : "";
+            if (failed > 0) Toast.ShowWarning($"再解析 {analyzed} 件、失敗 {failed} 件{stopped}");
+            else Toast.ShowSuccess($"{analyzed} 件を再解析しました{stopped}。");
+            _selected.Clear();
+        }
+        finally
+        {
+            _reanalyzeCts.Dispose();
+            _reanalyzeCts = null;
+        }
+    }
+
+    private void CancelReanalyze() => _reanalyzeCts?.Cancel();
 
     private int Count(string key) => key == "all" ? Searched.Count() : Searched.Count(r => r.Status.ToString() == key);
 
