@@ -35,12 +35,19 @@
             @label（@Count(key)）
         </FluentButton>
     }
+    <span class="spacer"></span>
+    <FluentSearch Placeholder="件名・差出人・本文・会社名・品名で検索" Immediate="true" ImmediateDelay="300" Class="mail-search"
+                  @bind-Value="_query" @bind-Value:after="SearchAsync" />
 </div>
 
 <div class="panel">
     @if (_rows.Count == 0)
     {
         <p class="sub">メールがありません。「取り込み・解析」を押すと、設定したメールフォルダから取り込みます。</p>
+    }
+    else if (_matches is { Count: 0 })
+    {
+        <p class="sub">「@_query」に一致するメールはありません。</p>
     }
     else
     {
@@ -76,11 +83,15 @@
 
     private List<MailRow> _rows = [];
     private string _filter = "all";
+    private string? _query;
+    private HashSet<int>? _matches;
+
+    private IEnumerable<MailRow> Searched => _matches is null ? _rows : _rows.Where(r => _matches.Contains(r.Id));
 
     private IQueryable<MailRow> Visible =>
-        (_filter == "all" ? _rows : _rows.Where(r => r.Status.ToString() == _filter)).AsQueryable();
+        (_filter == "all" ? Searched : Searched.Where(r => r.Status.ToString() == _filter)).AsQueryable();
 
-    private int Count(string key) => key == "all" ? _rows.Count : _rows.Count(r => r.Status.ToString() == key);
+    private int Count(string key) => key == "all" ? Searched.Count() : Searched.Count(r => r.Status.ToString() == key);
 
     protected override async Task OnInitializedAsync()
     {
@@ -105,6 +116,13 @@
                 m.Confidence,
                 m.ReviewedAt is not null))
             .ToList();
+        _matches = await MailSearch.FindAsync(db, _query);
+    }
+
+    private async Task SearchAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _matches = await MailSearch.FindAsync(db, _query);
     }
 
     private async Task RunAsync()

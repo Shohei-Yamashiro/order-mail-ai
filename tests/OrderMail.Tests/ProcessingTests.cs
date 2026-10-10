@@ -400,6 +400,25 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "受信メールを検索する", "件名・差出人・本文と、登録した発注の会社名・品名から探す。空白で区切った語はすべてを含むものだけを返し、全角・半角と大文字・小文字の違いは無視する。空の検索はすべてを返す。")]
+    public async Task Mail_search_matches_all_terms_across_mail_and_order()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        var confirmedId = await SampleIdAsync("02");
+        await review.ConfirmOrderAsync(confirmedId, new OrderDraft { CustomerCompany = "ひなたデザイン株式会社", Items = [new() { ProductName = "特製ノベルティ", Quantity = 5, Unit = "個" }] });
+        var maskId = await SampleIdAsync("07");
+        await using var db = Db();
+
+        Assert.Null(await MailSearch.FindAsync(db, "  　"));
+        Assert.Equal([maskId], await MailSearch.FindAsync(db, "ｻｰｼﾞｶﾙ MIDORI-CLINIC"));
+        Assert.Contains(maskId, (await MailSearch.FindAsync(db, "医療用消耗品"))!);
+        Assert.Equal([confirmedId], await MailSearch.FindAsync(db, "特製ノベルティ"));
+        Assert.Contains(confirmedId, (await MailSearch.FindAsync(db, "ひなたデザイン株式会社"))!);
+        Assert.Empty((await MailSearch.FindAsync(db, "サージカル 特製ノベルティ"))!);
+    }
+
+    [Fact]
     [Spec(SpecCategories.Settings, "プロンプトの設定を保存する", "当社名・編集したルール・手本数を保存して読み戻せる。ルールが未編集なら既定のルールを使う。")]
     public void Settings_keep_prompt_settings_and_unchanged_rules_as_null()
     {
