@@ -143,7 +143,7 @@
             <div class="sub" style="margin-top: 10px">@r.Analyzer@(r.ExampleCount > 0 ? $"・手本 {r.ExampleCount} 件まで" : "")・@r.Total 件（うち発注 @r.Orders 件）</div>
             <table class="eval-table">
                 <tr><th></th><th>今回</th>@if (_previousReport is not null) {<th>前回</th>}</tr>
-                @foreach (var (label, value) in Metrics)
+                @foreach (var (label, value) in EvaluationText.Metrics)
                 {
                     <tr>
                         <td>@label</td>
@@ -169,7 +169,7 @@
                     {
                         <li>
                             <a href="@($"mails/{row.MailId}")" target="_blank">@row.Subject</a>
-                            @foreach (var diff in Differences(row))
+                            @foreach (var diff in EvaluationText.Differences(row))
                             {
                                 <div class="sub">@diff</div>
                             }
@@ -224,18 +224,6 @@
         DateTime.UtcNow);
 
     private const int MaxEvalMails = 50;
-
-    private static readonly (string Label, Func<EvaluationReport, string> Value)[] Metrics =
-    [
-        ("発注かどうかの判定", r => Ratio(r.IsOrderOk, r.Total)),
-        ("明細（数量・単位）", r => Ratio(r.ItemsOk, r.Orders)),
-        ("会社名", r => Ratio(r.CompanyOk, r.Orders)),
-        ("希望納期", r => Ratio(r.DateOk, r.Orders)),
-        ("自動で確定", r => Ratio(r.Auto, r.Total)),
-        ("うち判定の誤り", r => $"{r.WrongAuto} 件"),
-        ("解析エラー", r => $"{r.Errors} 件"),
-        ("1 通あたりの時間", r => $"{r.AverageSeconds:0.0} 秒"),
-    ];
 
     private AppSettings _s = new();
     private bool _testing;
@@ -340,32 +328,6 @@
     }
 
     private void CancelEvaluation() => _evalCts?.Cancel();
-
-    private static string Ratio(int ok, int total) =>
-        total == 0 ? "－" : $"{ok}/{total}（{(double)ok / total:P0}）";
-
-    private static IEnumerable<string> Differences(EvaluationRow row)
-    {
-        if (row.Error is not null)
-        {
-            yield return "エラー: " + row.Error;
-            yield break;
-        }
-        var a = row.Actual!;
-        var e = row.Expected;
-        if (!row.IsOrderOk)
-        {
-            yield return $"判定: 正解は{(e.IsOrder ? "発注" : "発注以外")}、AI は{(a.IsOrder ? "発注" : "発注以外")}（自信度 {a.Confidence:0.00}）";
-            yield break;
-        }
-        if (!e.IsOrder) yield break;
-        if (!row.CompanyOk) yield return $"会社名: 正解「{e.CustomerCompany ?? "なし"}」、AI「{a.CustomerCompany ?? "なし"}」";
-        if (!row.DateOk) yield return $"希望納期: 正解 {e.DeliveryDate?.ToString("yyyy-MM-dd") ?? "なし"}、AI {a.DeliveryDate?.ToString("yyyy-MM-dd") ?? "なし"}";
-        if (!row.ItemsOk) yield return $"明細: 正解 {Items(e)}、AI {Items(a)}";
-    }
-
-    private static string Items(OrderExtraction e) =>
-        e.Items.Count == 0 ? "なし" : string.Join("／", e.Items.Select(i => $"{i.ProductName} {i.Quantity:0.###}{i.Unit}"));
 
     private void ApplyPreset(Preset p)
     {

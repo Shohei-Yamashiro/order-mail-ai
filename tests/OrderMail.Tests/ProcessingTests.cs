@@ -223,6 +223,64 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Feedback, "担当者の修正を集計する", "確定した時点で表示されていた解析結果（確定より後の再解析は使わない）と確定内容を比べ、直した件数と項目ごとの一致数を解析器ごとに数える。手本の件数が違っても同じ解析器にまとめる。")]
+    public async Task Feedback_compares_confirmed_answers_with_the_analysis_shown_at_review()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        var orderId = await SampleIdAsync("01");
+        await review.ConfirmOrderAsync(orderId, new OrderDraft { CustomerCompany = "担当者が直した会社", Items = [new() { ProductName = "A4コピー用紙", Quantity = 10, Unit = "箱" }, new() { ProductName = "トナー", Quantity = 2, Unit = "本" }] });
+        await review.MarkNotOrderAsync(await SampleIdAsync("13"));
+        await using (var db = Db())
+        {
+            db.Analyses.Add(new MailAnalysis
+            {
+                ReceivedMailId = orderId,
+                Analyzer = "AI（m）・手本3件",
+                ResultJson = ExtractionJson.Serialize(new OrderExtraction { IsOrder = false, Confidence = 0.9 }),
+                CreatedAt = DateTime.UtcNow.AddMinutes(5),
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var report = await _services.GetRequiredService<FeedbackService>().BuildAsync(0.8);
+
+        Assert.Equal(2, report.Overall.Total);
+        Assert.Equal(2, report.Overall.IsOrderOk);
+        Assert.Equal(0, report.Overall.CompanyOk);
+        Assert.Equal(1, report.Corrected);
+        Assert.Equal("ルールベース", Assert.Single(report.ByAnalyzer).Analyzer);
+        Assert.Equal("AI（m）", FeedbackService.BaseName("AI（m）・手本3件"));
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Feedback, "ファインチューニング用の学習データを書き出す", "確定したメールを 1 行 1 件の JSONL（system・user・assistant）にし、指定した間隔で検証用に分ける。答えは確定内容で、件数が少ないと警告する。")]
+    public async Task Fine_tuning_export_writes_chat_jsonl_from_confirmed_mails()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        await review.ConfirmOrderAsync(await SampleIdAsync("01"), new OrderDraft { CustomerCompany = "あおぞら工業株式会社", Items = [new() { ProductName = "A4コピー用紙", Quantity = 10, Unit = "箱" }] });
+        await review.ConfirmOrderAsync(await SampleIdAsync("02"), new OrderDraft { CustomerCompany = "ひなたデザイン", Items = [new() { ProductName = "ボールペン", Quantity = 50, Unit = "本" }] });
+        await review.MarkNotOrderAsync(await SampleIdAsync("13"));
+
+        var export = await _services.GetRequiredService<FineTuningExporter>().ExportAsync(new AiSettings { OwnCompanyName = "サンプル商事" }, validationEvery: 3);
+
+        Assert.Equal(2, export.TrainCount);
+        Assert.Equal(1, export.ValidationCount);
+        Assert.Contains(export.Warnings, w => w.Contains("10 件以上"));
+        var lines = File.ReadAllLines(export.TrainPath);
+        Assert.Equal(2, lines.Length);
+        var messages = System.Text.Json.Nodes.JsonNode.Parse(lines[0])!["messages"]!.AsArray();
+        Assert.Equal(["system", "user", "assistant"], messages.Select(m => m!["role"]!.GetValue<string>()));
+        Assert.Contains("「サンプル商事」", messages[0]!["content"]!.GetValue<string>());
+        Assert.Contains("本文:", messages[1]!["content"]!.GetValue<string>());
+        var answer = ExtractionJson.Parse(messages[2]!["content"]!.GetValue<string>());
+        Assert.True(answer.IsOrder);
+        Assert.Equal("あおぞら工業株式会社", answer.CustomerCompany);
+        Assert.False(ExtractionJson.Parse(System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllLines(export.ValidationPath!)[0])!["messages"]![2]!["content"]!.GetValue<string>()).IsOrder);
+    }
+
+    [Fact]
     [Spec(SpecCategories.Processing, "人の確認をすべて取り消せる（デバッグ用）", "確認済みのメールを未解析に戻して人が確定した発注を削除し、自動登録の発注と解析履歴は残す。次の実行で解析し直す。")]
     public async Task Clearing_reviews_resets_human_decisions_and_reanalyzes_them()
     {
