@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<ProductCatalogService>>()));
         services.AddSingleton<MailProcessor>();
         services.AddSingleton<ReviewService>();
+        services.AddSingleton<DataResetService>();
         services.AddSingleton<PromptEvaluator>();
         services.AddSingleton<FeedbackService>();
         services.AddSingleton(sp => new FineTuningExporter(

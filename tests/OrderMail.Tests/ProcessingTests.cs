@@ -400,6 +400,72 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Processing, "発注一覧をクリアできる（デバッグ用）", "自動登録・人が確定した発注をすべて削除し、発注だったメールは人の確認も取り消して未解析に戻す。発注以外のメール・人の「発注ではない」・解析履歴は残し、次の実行で発注を作り直す。")]
+    public async Task Clearing_orders_deletes_them_and_reanalyzes_their_mails()
+    {
+        var processor = _services.GetRequiredService<MailProcessor>();
+        var review = _services.GetRequiredService<ReviewService>();
+        var resetter = _services.GetRequiredService<DataResetService>();
+        await processor.RunAsync();
+        int confirmedId = await SampleIdAsync("02"), dismissedId = await SampleIdAsync("13");
+        await review.ConfirmOrderAsync(confirmedId, new OrderDraft { CustomerCompany = "人が入力", Items = [new() { ProductName = "ボールペン", Quantity = 50, Unit = "本" }] });
+        await review.MarkNotOrderAsync(dismissedId);
+        var before = await resetter.CountsAsync();
+        int registered, analyses;
+        await using (var db = Db())
+        {
+            registered = await db.Mails.CountAsync(m => m.Status == MailStatus.Registered);
+            analyses = await db.Analyses.CountAsync();
+        }
+
+        Assert.Equal(before.Orders, await resetter.ClearOrdersAsync());
+
+        await using (var db = Db())
+        {
+            Assert.Equal(0, await db.Orders.CountAsync());
+            Assert.Equal(0, await db.OrderItems.CountAsync());
+            Assert.Equal(0, await db.Mails.CountAsync(m => m.Status == MailStatus.Registered));
+            Assert.Equal(registered, await db.Mails.CountAsync(m => m.Status == MailStatus.Unanalyzed));
+            var confirmed = await db.Mails.SingleAsync(m => m.Id == confirmedId);
+            Assert.False(confirmed.IsReviewed);
+            var dismissed = await db.Mails.SingleAsync(m => m.Id == dismissedId);
+            Assert.True(dismissed.IsReviewed);
+            Assert.Equal(MailStatus.NotOrder, dismissed.Status);
+            Assert.Equal(analyses, await db.Analyses.CountAsync());
+        }
+        Assert.Equal(new DataCounts(before.Mails, 0, 1), await resetter.CountsAsync());
+
+        var rerun = await processor.RunAsync();
+        Assert.Equal(registered, rerun.Analyzed);
+        Assert.True((await resetter.CountsAsync()).Orders > 0);
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Processing, "読み込んだメールをすべて削除できる（デバッグ用）", "メールと解析履歴・発注・人の確認をすべて削除し、商品マスタは残す。次の実行で同じメールを取り込み直す。")]
+    public async Task Clearing_mails_deletes_everything_and_imports_again()
+    {
+        var processor = _services.GetRequiredService<MailProcessor>();
+        var resetter = _services.GetRequiredService<DataResetService>();
+        await processor.RunAsync();
+        await _services.GetRequiredService<ReviewService>().MarkNotOrderAsync(await SampleIdAsync("13"));
+        int products;
+        await using (var db = Db()) products = await db.Products.CountAsync();
+
+        Assert.Equal(Samples.Labels.Count, await resetter.ClearMailsAsync());
+
+        Assert.Equal(new DataCounts(0, 0, 0), await resetter.CountsAsync());
+        await using (var db = Db())
+        {
+            Assert.Equal(0, await db.Analyses.CountAsync());
+            Assert.Equal(0, await db.OrderItems.CountAsync());
+            Assert.Equal(products, await db.Products.CountAsync());
+        }
+        var rerun = await processor.RunAsync();
+        Assert.Equal(Samples.Labels.Count, rerun.Imported);
+        Assert.Equal(Samples.Labels.Count, rerun.Analyzed);
+    }
+
+    [Fact]
     [Spec(SpecCategories.Settings, "プロンプトの設定を保存する", "当社名・編集したルール・手本数を保存して読み戻せる。ルールが未編集なら既定のルールを使う。")]
     public void Settings_keep_prompt_settings_and_unchanged_rules_as_null()
     {

@@ -6,6 +6,7 @@
 @inject MailSourceFactory Sources
 @inject PromptEvaluator Evaluator
 @inject ReviewService Review
+@inject DataResetService Resetter
 @inject MailProcessor Processor
 @inject ProductCatalogService Catalog
 @inject IDialogService Dialogs
@@ -255,12 +256,34 @@
 
     <section class="panel debug-panel">
         <h3>デバッグ</h3>
-        <p class="sub">人の確認（「発注として登録」「発注ではない」）をすべて取り消し、確認前の状態に戻します。人が確定した発注は削除され、対象のメールは「未解析」に戻ります。「受信メール」で「取り込み・解析」を押すと、今の設定で解析し直します。人が確認していない自動登録の発注と、解析履歴は残ります。</p>
-        <div class="actions" style="margin-top: 0">
-            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowUndo())"
-                          Disabled="@(_reviewedCount == 0 || _evaluating || Processor.IsRunning)" OnClick="ClearReviewsAsync">人の確認をすべて取り消す</FluentButton>
-            <span class="sub" style="align-self: center">確認済み：@(_reviewedCount?.ToString() ?? "…") 件</span>
-        </div>
+        <p class="sub">データを消して、同じメールで最初から試し直すための機能です。どれも元に戻せません。設定と商品マスタは消えません。</p>
+        <table class="debug-table">
+            <tr>
+                <td>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowUndo())"
+                                  Disabled="@(_counts?.Reviewed is null or 0 || Busy)" OnClick="ClearReviewsAsync">人の確認をすべて取り消す</FluentButton>
+                </td>
+                <td class="sub">確認済み @(_counts?.Reviewed.ToString() ?? "…") 件</td>
+                <td class="sub">人の確認（「発注として登録」「発注ではない」）を取り消します。人が確定した発注は削除し、対象のメールは「未解析」に戻します。自動登録の発注と解析履歴は残ります。</td>
+            </tr>
+            <tr>
+                <td>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Delete())"
+                                  Disabled="@(_counts?.Orders is null or 0 || Busy)" OnClick="ClearOrdersAsync">発注一覧をクリア</FluentButton>
+                </td>
+                <td class="sub">発注 @(_counts?.Orders.ToString() ?? "…") 件</td>
+                <td class="sub">自動登録・人が確定した発注をすべて削除します。発注だったメールは人の確認も取り消して「未解析」に戻します。メールと解析履歴は残ります。</td>
+            </tr>
+            <tr>
+                <td>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Delete())"
+                                  Disabled="@(_counts?.Mails is null or 0 || Busy)" OnClick="ClearMailsAsync">読み込んだメールをすべて削除</FluentButton>
+                </td>
+                <td class="sub">メール @(_counts?.Mails.ToString() ?? "…") 件</td>
+                <td class="sub">取り込んだメールと、その解析履歴・発注・人の確認をすべて削除します。メールフォルダやサーバーのメールは消えないので、次の「取り込み・解析」で取り込み直します。</td>
+            </tr>
+        </table>
+        <p class="sub">消した後は「受信メール」で「取り込み・解析」を押すと、今の設定で解析し直します。</p>
     </section>
 
     <p class="sub">API キーと IMAP パスワードは Windows のユーザーごとに暗号化して保存します。</p>
@@ -301,7 +324,8 @@
     private EvaluationReport? _previousReport;
     private CancellationTokenSource? _evalCts;
 
-    private int? _reviewedCount;
+    private DataCounts? _counts;
+    private bool _clearing;
 
     private bool _catalogBusy;
     private string? _catalogProgress;
@@ -313,7 +337,7 @@
     {
         _s = Store.Current;
         _instructions = OrderPrompt.Instructions(_s.Ai);
-        _reviewedCount = await Review.CountReviewedAsync();
+        _counts = await Resetter.CountsAsync();
         await RefreshCatalogStatsAsync();
     }
 
@@ -386,19 +410,42 @@
         }
     }
 
-    private async Task ClearReviewsAsync()
+    private bool Busy => _evaluating || _clearing || Processor.IsRunning;
+
+    private async Task ClearReviewsAsync() => await ClearAsync(
+        $"人が確認した {_counts?.Reviewed} 件のメールを確認前に戻し、人が確定した発注を削除します。元に戻せません。よろしいですか？",
+        "人の確認をすべて取り消す", "取り消す",
+        async () => $"{await Review.ClearAllReviewsAsync()} 件の確認を取り消しました。");
+
+    private async Task ClearOrdersAsync() => await ClearAsync(
+        $"発注 {_counts?.Orders} 件をすべて削除し、発注だったメールを「未解析」に戻します。人が確定した発注も消えます。元に戻せません。よろしいですか？",
+        "発注一覧をクリア", "削除する",
+        async () => $"発注 {await Resetter.ClearOrdersAsync()} 件を削除しました。");
+
+    private async Task ClearMailsAsync() => await ClearAsync(
+        $"読み込んだメール {_counts?.Mails} 件と、その解析履歴・発注・人の確認をすべて削除します。元に戻せません。よろしいですか？",
+        "読み込んだメールをすべて削除", "削除する",
+        async () => $"メール {await Resetter.ClearMailsAsync()} 件を削除しました。");
+
+    private async Task ClearAsync(string message, string title, string ok, Func<Task<string>> clear)
     {
-        var dialog = await Dialogs.ShowConfirmationAsync(
-            $"人が確認した {_reviewedCount} 件のメールを確認前に戻し、人が確定した発注を削除します。元に戻せません。よろしいですか？",
-            "取り消す", "キャンセル", "人の確認をすべて取り消す");
+        var dialog = await Dialogs.ShowConfirmationAsync(message, ok, "キャンセル", title);
         var result = await dialog.Result;
         if (result.Cancelled) return;
 
-        var count = await Review.ClearAllReviewsAsync();
-        _reviewedCount = await Review.CountReviewedAsync();
-        _report = null;
-        _previousReport = null;
-        Toast.ShowSuccess($"{count} 件の確認を取り消しました。「受信メール」で「取り込み・解析」を押すと解析し直します。");
+        _clearing = true;
+        try
+        {
+            var done = await clear();
+            _report = null;
+            _previousReport = null;
+            Toast.ShowSuccess(done + "「受信メール」で「取り込み・解析」を押すと解析し直します。");
+        }
+        finally
+        {
+            _clearing = false;
+            _counts = await Resetter.CountsAsync();
+        }
     }
 
     public void Dispose() => _evalCts?.Cancel();

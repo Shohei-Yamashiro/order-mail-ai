@@ -288,6 +288,21 @@ h1:focus {
     border-style: dashed;
 }
 
+.debug-table {
+    border-collapse: collapse;
+    margin-bottom: 8px;
+}
+
+.debug-table td {
+    padding: 6px 12px 6px 0;
+    border-bottom: 1px solid #eceef1;
+    vertical-align: middle;
+}
+
+.debug-table td:nth-child(2) {
+    white-space: nowrap;
+}
+
 .prompt-preview {
     max-height: 480px;
 }
