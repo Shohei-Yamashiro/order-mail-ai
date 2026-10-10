@@ -1,0 +1,164 @@
+@page "/improve"
+@using System.Diagnostics
+@inject FeedbackService Feedback
+@inject FineTuningExporter Exporter
+@inject SettingsStore Store
+@inject ReviewService Review
+@inject IToastService Toast
+@implements IDisposable
+
+<PageTitle>AI の改善</PageTitle>
+
+<div class="page-head">
+    <h2>AI の改善</h2>
+</div>
+
+<div class="settings">
+    <section class="panel">
+        <h3>改善の進め方</h3>
+        <ol class="steps">
+            <li><strong>確定を続ける</strong>：メール詳細で確定した内容は、似たメールを解析するときの手本として AI に渡されます（再学習は不要）。</li>
+            <li><strong>修正の傾向を見る</strong>：下の「担当者の修正の集計」で、AI の答えを担当者がどの項目でよく直しているかを確かめます。</li>
+            <li><strong>指示を直して測る</strong>：「設定」の「AI への指示」を直し、「確認済みメールで評価」で一致率が上がるかを確かめてから保存します。</li>
+            <li><strong>ファインチューニング</strong>：確定が数百件たまったら、下の「学習データの書き出し」で作ったファイルでモデルを追加学習し、できたモデル名を「設定」に入れて評価で比べます。</li>
+        </ol>
+    </section>
+
+    <section class="panel">
+        <h3>担当者の修正の集計</h3>
+        <p class="sub">確定したメールごとに、担当者が確定した時点で表示されていた解析結果と、確定した内容を比べます。AI を呼び直さずに、実際の運用での正解率が分かります。</p>
+        @if (_report is null)
+        {
+            <p class="sub">読み込み中…</p>
+        }
+        else if (_report.Overall.Total == 0)
+        {
+            <p class="sub">まだ集計できるメールがありません。メール詳細で「発注として登録」か「発注ではない」を押すと集計に加わります。</p>
+        }
+        else
+        {
+            <div class="sub">確定 @_report.Overall.Total 件のうち、担当者が直したもの @_report.Corrected 件</div>
+            <table class="eval-table">
+                <tr>
+                    <th></th>
+                    <th>すべて</th>
+                    @foreach (var a in _report.ByAnalyzer.Take(MaxColumns))
+                    {
+                        <th>@a.Analyzer</th>
+                    }
+                </tr>
+                @foreach (var (label, value) in EvaluationText.Metrics.Where(m => m.Label is not ("解析エラー" or "1 通あたりの時間")))
+                {
+                    <tr>
+                        <td>@label</td>
+                        <td>@value(_report.Overall)</td>
+                        @foreach (var a in _report.ByAnalyzer.Take(MaxColumns))
+                        {
+                            <td class="sub">@value(a)</td>
+                        }
+                    </tr>
+                }
+            </table>
+            <p class="sub">「自動で確定」は今のしきい値（@_threshold.ToString("0.00")）で数えています。</p>
+
+            var corrected = _report.ByAnalyzer.SelectMany(a => a.Rows.Where(r => !r.AllOk).Select(r => (a.Analyzer, Row: r))).Take(MaxCorrections).ToList();
+            if (corrected.Count > 0)
+            {
+                <strong style="font-size: 13px">担当者が直したメール（@(_report.Corrected) 件@(_report.Corrected > MaxCorrections ? $"のうち {MaxCorrections} 件" : "")）</strong>
+                <ul class="eval-misses">
+                    @foreach (var (analyzer, row) in corrected)
+                    {
+                        <li>
+                            <a href="@($"mails/{row.MailId}")">@row.Subject</a> <span class="sub">（@analyzer）</span>
+                            @foreach (var diff in EvaluationText.Differences(row, "解析"))
+                            {
+                                <div class="sub">@diff</div>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        }
+    </section>
+
+    <section class="panel">
+        <h3>学習データの書き出し（ファインチューニング用）</h3>
+        <p class="sub">確定したメールを、OpenAI・Azure OpenAI のファインチューニングに使える形式（チャット形式の JSONL）で書き出します。1 行に「アプリが送る指示文・メール・確定した答え」が入るので、学習したモデルはそのままこのアプリで使えます。オープンなモデル（Ollama などで動かすもの）の追加学習ツールの多くも、この形式を読み込めます。</p>
+        <FluentRadioGroup TValue="int" Label="検証用に分ける件数" @bind-Value="_validationEvery" Orientation="Orientation.Horizontal">
+            <FluentRadio Value="0">分けない</FluentRadio>
+            <FluentRadio Value="5">5 件に 1 件</FluentRadio>
+            <FluentRadio Value="10">10 件に 1 件</FluentRadio>
+        </FluentRadioGroup>
+        <div class="actions" style="margin-top: 0">
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowDownload())" Disabled="@(_exporting || _reviewedCount == 0)" OnClick="ExportAsync">書き出す</FluentButton>
+            <FluentButton Appearance="Appearance.Stealth" IconStart="@(new Icons.Regular.Size16.FolderOpen())" OnClick="OpenFolder">フォルダを開く</FluentButton>
+            <span class="sub" style="align-self: center">確認済み：@(_reviewedCount?.ToString() ?? "…") 件</span>
+        </div>
+        @if (_export is { } x)
+        {
+            <div class="test-result">学習用 @x.TrainCount 件：@x.TrainPath@(x.ValidationPath is null ? "" : $"\n検証用 {x.ValidationCount} 件：{x.ValidationPath}")</div>
+            @foreach (var w in x.Warnings)
+            {
+                <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">@w</FluentMessageBar>
+            }
+        }
+        <p class="sub">指示文は今保存されている「AI への指示」と当社名で作ります。学習データにはメール本文が含まれるので、社外のサービスに送る前に社内の取り扱いルールを確認してください。</p>
+    </section>
+</div>
+
+@code {
+    private const int MaxColumns = 3;
+    private const int MaxCorrections = 30;
+
+    private FeedbackReport? _report;
+    private double _threshold;
+    private int? _reviewedCount;
+    private int _validationEvery = 5;
+    private bool _exporting;
+    private FineTuningExport? _export;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Review.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _threshold = Store.Current.AutoRegisterThreshold;
+        _report = await Feedback.BuildAsync(_threshold);
+        _reviewedCount = await Review.CountReviewedAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => Review.Changed -= OnChanged;
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        try
+        {
+            _export = await Exporter.ExportAsync(Store.Current.Ai, _validationEvery);
+            Toast.ShowSuccess($"学習用 {_export.TrainCount} 件を書き出しました。");
+        }
+        catch (Exception e)
+        {
+            Toast.ShowError("書き出せませんでした: " + e.Message);
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    private void OpenFolder()
+    {
+        Directory.CreateDirectory(Exporter.ExportDirectory);
+        Process.Start(new ProcessStartInfo(Exporter.ExportDirectory) { UseShellExecute = true });
+    }
+}

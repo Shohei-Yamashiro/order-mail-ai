@@ -248,6 +248,13 @@ h1:focus {
     margin-bottom: 10px;
 }
 
+.settings .steps {
+    margin: 0;
+    padding-left: 20px;
+    line-height: 1.8;
+    font-size: 13px;
+}
+
 .settings .preset-hint {
     margin-top: -4px;
     padding: 6px 10px;

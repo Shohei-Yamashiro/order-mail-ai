@@ -24,6 +24,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<MailProcessor>();
         services.AddSingleton<ReviewService>();
         services.AddSingleton<PromptEvaluator>();
+        services.AddSingleton<FeedbackService>();
+        services.AddSingleton(sp => new FineTuningExporter(
+            sp.GetRequiredService<IDbContextFactory<OrderMailDbContext>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            Path.Combine(dataDirectory, "exports")));
         return services;
     }
 }
