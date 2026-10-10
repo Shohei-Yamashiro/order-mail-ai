@@ -29,6 +29,29 @@ public sealed class FineTuningExporter(IDbContextFactory<OrderMailDbContext> dbF
     /// <param name="validationEvery">Every n-th mail (by id) goes to the validation file; 0 writes no validation file.</param>
     public async Task<FineTuningExport> ExportAsync(AiSettings settings, int validationEvery, CancellationToken ct = default)
     {
+        var data = await BuildAsync(settings, validationEvery, ct);
+        var warnings = data.Warnings.ToList();
+        if (data.Train.Count is > 0 and < MinimumTrainCount)
+            warnings.Insert(0, $"学習用が {data.Train.Count} 件です。OpenAI・Azure OpenAI のファインチューニングには {MinimumTrainCount} 件以上が必要で、効果を出すには数百件が目安です。");
+
+        Directory.CreateDirectory(exportDirectory);
+        var stamp = Stamp();
+        var trainPath = Path.Combine(exportDirectory, $"finetune-{stamp}-train.jsonl");
+        await WriteAsync(trainPath, data.Train, ct);
+        string? validationPath = null;
+        if (data.Validation.Count > 0)
+        {
+            validationPath = Path.Combine(exportDirectory, $"finetune-{stamp}-validation.jsonl");
+            await WriteAsync(validationPath, data.Validation, ct);
+        }
+        return new FineTuningExport(trainPath, data.Train.Count, validationPath, data.Validation.Count, warnings);
+    }
+
+    public sealed record TrainingData(IReadOnlyList<string> Train, IReadOnlyList<string> Validation, IReadOnlyList<string> Warnings);
+
+    /// <summary>Confirmed mails as JSONL lines, every n-th one held out for validation, with warnings about the data itself.</summary>
+    public async Task<TrainingData> BuildAsync(AiSettings settings, int validationEvery, CancellationToken ct = default)
+    {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var mails = await db.Mails
             .AsNoTracking()
@@ -48,22 +71,12 @@ public sealed class FineTuningExporter(IDbContextFactory<OrderMailDbContext> dbF
 
         var warnings = new List<string>();
         if (mails.Count == 0) warnings.Add("確認済みのメールがありません。");
-        else if (train.Count < MinimumTrainCount) warnings.Add($"学習用が {train.Count} 件です。OpenAI・Azure OpenAI のファインチューニングには {MinimumTrainCount} 件以上が必要で、効果を出すには数百件が目安です。");
         var orders = mails.Count(m => m.Status == MailStatus.Registered);
         if (mails.Count > 0 && (orders == 0 || orders == mails.Count)) warnings.Add("発注と発注以外の片方しかありません。両方を含めると判定が偏りにくくなります。");
-
-        Directory.CreateDirectory(exportDirectory);
-        var stamp = time.GetLocalNow().ToString("yyyyMMdd-HHmmss");
-        var trainPath = Path.Combine(exportDirectory, $"finetune-{stamp}-train.jsonl");
-        await WriteAsync(trainPath, train, ct);
-        string? validationPath = null;
-        if (validation.Count > 0)
-        {
-            validationPath = Path.Combine(exportDirectory, $"finetune-{stamp}-validation.jsonl");
-            await WriteAsync(validationPath, validation, ct);
-        }
-        return new FineTuningExport(trainPath, train.Count, validationPath, validation.Count, warnings);
+        return new TrainingData(train, validation, warnings);
     }
+
+    public string Stamp() => time.GetLocalNow().ToString("yyyyMMdd-HHmmss");
 
     public static string Line(AiSettings settings, ReceivedMail mail)
     {
@@ -77,6 +90,6 @@ public sealed class FineTuningExporter(IDbContextFactory<OrderMailDbContext> dbF
         return JsonSerializer.Serialize(new { messages }, LineOptions);
     }
 
-    private static Task WriteAsync(string path, List<string> lines, CancellationToken ct) =>
+    public static Task WriteAsync(string path, IReadOnlyList<string> lines, CancellationToken ct) =>
         File.WriteAllTextAsync(path, string.Join("\n", lines) + (lines.Count > 0 ? "\n" : ""), new UTF8Encoding(false), ct);
 }

@@ -359,6 +359,30 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Feedback, "ローカル LLM の学習キットを書き出す", "確定したメールの学習データ（学習用・検証用）、学習スクリプト、Modelfile のひな形、手順書を 1 つのフォルダに書き出す。件数が少ないと警告し、Ollama に接続できなければ標準のテンプレートを使うと知らせる。")]
+    public async Task Local_fine_tuning_kit_writes_data_script_modelfile_and_steps()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        await review.ConfirmOrderAsync(await SampleIdAsync("01"), new OrderDraft { CustomerCompany = "あおぞら工業株式会社", Items = [new() { ProductName = "A4コピー用紙", Quantity = 10, Unit = "箱" }] });
+        await review.MarkNotOrderAsync(await SampleIdAsync("13"));
+        var offline = new OllamaClient(new HttpClient(new LocalFineTuningTests.FakeHandler(_ => throw new HttpRequestException("refused"))));
+        var kit = new LocalFineTuningKit(_services.GetRequiredService<FineTuningExporter>(), offline);
+
+        var export = await kit.ExportAsync(new AiSettings { Endpoint = "http://localhost:11434/v1", Model = "qwen2.5:7b" }, 2, "my-model", 2);
+
+        Assert.Equal(1, export.TrainCount);
+        Assert.Equal(1, export.ValidationCount);
+        Assert.Equal("unsloth/Qwen2.5-7B-Instruct", export.BaseModel!.HuggingFaceModel);
+        Assert.False(export.TemplateFromOllama);
+        Assert.Contains(export.Warnings, w => w.Contains("100 件以上"));
+        Assert.Contains(export.Warnings, w => w.Contains("標準のテンプレート"));
+        Assert.Equal(["Modelfile.in", "README.md", "train.jsonl", "train.py", "validation.jsonl"], Directory.GetFiles(export.Directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Contains("ollama create my-model -f Modelfile", File.ReadAllText(Path.Combine(export.Directory, "README.md")));
+        Assert.Contains("EPOCHS = 2", File.ReadAllText(Path.Combine(export.Directory, "train.py")));
+    }
+
+    [Fact]
     [Spec(SpecCategories.Processing, "人の確認をすべて取り消せる（デバッグ用）", "確認済みのメールを未解析に戻して人が確定した発注を削除し、自動登録の発注と解析履歴は残す。次の実行で解析し直す。")]
     public async Task Clearing_reviews_resets_human_decisions_and_reanalyzes_them()
     {
@@ -416,6 +440,72 @@ public sealed class ProcessingTests : IDisposable
         Assert.Equal([confirmedId], await MailSearch.FindAsync(db, "特製ノベルティ"));
         Assert.Contains(confirmedId, (await MailSearch.FindAsync(db, "ひなたデザイン株式会社"))!);
         Assert.Empty((await MailSearch.FindAsync(db, "サージカル 特製ノベルティ"))!);
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Processing, "発注一覧をクリアできる（デバッグ用）", "自動登録・人が確定した発注をすべて削除し、発注だったメールは人の確認も取り消して未解析に戻す。発注以外のメール・人の「発注ではない」・解析履歴は残し、次の実行で発注を作り直す。")]
+    public async Task Clearing_orders_deletes_them_and_reanalyzes_their_mails()
+    {
+        var processor = _services.GetRequiredService<MailProcessor>();
+        var review = _services.GetRequiredService<ReviewService>();
+        var resetter = _services.GetRequiredService<DataResetService>();
+        await processor.RunAsync();
+        int confirmedId = await SampleIdAsync("02"), dismissedId = await SampleIdAsync("13");
+        await review.ConfirmOrderAsync(confirmedId, new OrderDraft { CustomerCompany = "人が入力", Items = [new() { ProductName = "ボールペン", Quantity = 50, Unit = "本" }] });
+        await review.MarkNotOrderAsync(dismissedId);
+        var before = await resetter.CountsAsync();
+        int registered, analyses;
+        await using (var db = Db())
+        {
+            registered = await db.Mails.CountAsync(m => m.Status == MailStatus.Registered);
+            analyses = await db.Analyses.CountAsync();
+        }
+
+        Assert.Equal(before.Orders, await resetter.ClearOrdersAsync());
+
+        await using (var db = Db())
+        {
+            Assert.Equal(0, await db.Orders.CountAsync());
+            Assert.Equal(0, await db.OrderItems.CountAsync());
+            Assert.Equal(0, await db.Mails.CountAsync(m => m.Status == MailStatus.Registered));
+            Assert.Equal(registered, await db.Mails.CountAsync(m => m.Status == MailStatus.Unanalyzed));
+            var confirmed = await db.Mails.SingleAsync(m => m.Id == confirmedId);
+            Assert.False(confirmed.IsReviewed);
+            var dismissed = await db.Mails.SingleAsync(m => m.Id == dismissedId);
+            Assert.True(dismissed.IsReviewed);
+            Assert.Equal(MailStatus.NotOrder, dismissed.Status);
+            Assert.Equal(analyses, await db.Analyses.CountAsync());
+        }
+        Assert.Equal(new DataCounts(before.Mails, 0, 1), await resetter.CountsAsync());
+
+        var rerun = await processor.RunAsync();
+        Assert.Equal(registered, rerun.Analyzed);
+        Assert.True((await resetter.CountsAsync()).Orders > 0);
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Processing, "読み込んだメールをすべて削除できる（デバッグ用）", "メールと解析履歴・発注・人の確認をすべて削除し、商品マスタは残す。次の実行で同じメールを取り込み直す。")]
+    public async Task Clearing_mails_deletes_everything_and_imports_again()
+    {
+        var processor = _services.GetRequiredService<MailProcessor>();
+        var resetter = _services.GetRequiredService<DataResetService>();
+        await processor.RunAsync();
+        await _services.GetRequiredService<ReviewService>().MarkNotOrderAsync(await SampleIdAsync("13"));
+        int products;
+        await using (var db = Db()) products = await db.Products.CountAsync();
+
+        Assert.Equal(Samples.Labels.Count, await resetter.ClearMailsAsync());
+
+        Assert.Equal(new DataCounts(0, 0, 0), await resetter.CountsAsync());
+        await using (var db = Db())
+        {
+            Assert.Equal(0, await db.Analyses.CountAsync());
+            Assert.Equal(0, await db.OrderItems.CountAsync());
+            Assert.Equal(products, await db.Products.CountAsync());
+        }
+        var rerun = await processor.RunAsync();
+        Assert.Equal(Samples.Labels.Count, rerun.Imported);
+        Assert.Equal(Samples.Labels.Count, rerun.Analyzed);
     }
 
     [Fact]

@@ -30,12 +30,15 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<ILogger<ProductCatalogService>>()));
         services.AddSingleton<MailProcessor>();
         services.AddSingleton<ReviewService>();
+        services.AddSingleton<DataResetService>();
         services.AddSingleton<PromptEvaluator>();
         services.AddSingleton<FeedbackService>();
         services.AddSingleton(sp => new FineTuningExporter(
             sp.GetRequiredService<IDbContextFactory<OrderMailDbContext>>(),
             sp.GetRequiredService<TimeProvider>(),
             Path.Combine(dataDirectory, "exports")));
+        services.AddSingleton(new OllamaClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }));
+        services.AddSingleton<LocalFineTuningKit>();
         return services;
     }
 }
