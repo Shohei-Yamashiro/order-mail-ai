@@ -12,6 +12,7 @@ public static class EvaluationText
         ("明細（数量・単位）", r => Ratio(r.ItemsOk, r.Orders)),
         ("会社名", r => Ratio(r.CompanyOk, r.Orders)),
         ("希望納期", r => Ratio(r.DateOk, r.Orders)),
+        ("商品コード", r => Ratio(r.CodesOk, r.WithCodes)),
         ("自動で確定", r => Ratio(r.Auto, r.Total)),
         ("うち判定の誤り", r => $"{r.WrongAuto} 件"),
         ("解析エラー", r => $"{r.Errors} 件"),
@@ -40,7 +41,11 @@ public static class EvaluationText
         if (!row.CompanyOk) yield return $"会社名: 正解「{e.CustomerCompany ?? "なし"}」、{actualLabel}「{a.CustomerCompany ?? "なし"}」";
         if (!row.DateOk) yield return $"希望納期: 正解 {e.DeliveryDate?.ToString("yyyy-MM-dd") ?? "なし"}、{actualLabel} {a.DeliveryDate?.ToString("yyyy-MM-dd") ?? "なし"}";
         if (!row.ItemsOk) yield return $"明細: 正解 {Items(e)}、{actualLabel} {Items(a)}";
+        if (row.HasCodes && !row.CodesOk) yield return $"商品コード: 正解 {Codes(e)}、{actualLabel} {Codes(a)}";
     }
+
+    private static string Codes(OrderExtraction e) =>
+        string.Join("／", e.Items.Select(i => i.ProductCode ?? "なし"));
 
     private static string Items(OrderExtraction e) =>
         e.Items.Count == 0 ? "なし" : string.Join("／", e.Items.Select(i => $"{i.ProductName} {i.Quantity:0.###}{i.Unit}"));

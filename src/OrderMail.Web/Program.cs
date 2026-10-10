@@ -2,7 +2,9 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.FluentUI.AspNetCore.Components;
 using OrderMail.Core;
+using OrderMail.Core.Catalog;
 using OrderMail.Core.Data;
+using OrderMail.Core.Settings;
 using OrderMail.Web.Components;
 using OrderMail.Web.Services;
 
@@ -23,8 +25,10 @@ var app = builder.Build();
 
 using (var db = app.Services.GetRequiredService<IDbContextFactory<OrderMailDbContext>>().CreateDbContext())
 {
-    db.Database.EnsureCreated();
+    db.EnsureSchema();
 }
+await app.Services.GetRequiredService<ProductCatalogService>()
+    .ImportIfEmptyAsync(app.Services.GetRequiredService<SettingsStore>().Current.Catalog);
 
 if (!app.Environment.IsDevelopment())
 {

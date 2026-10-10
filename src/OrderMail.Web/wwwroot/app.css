@@ -193,6 +193,15 @@ h1:focus {
     min-width: 0;
 }
 
+.items-table .code-field {
+    margin-top: 2px;
+    font-size: 12px;
+}
+
+.items-table td:has(.code-field) ~ td {
+    vertical-align: top;
+}
+
 .actions {
     display: flex;
     gap: 8px;

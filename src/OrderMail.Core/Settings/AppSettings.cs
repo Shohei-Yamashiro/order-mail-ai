@@ -23,6 +23,7 @@ public sealed class AppSettings
 {
     public AiSettings Ai { get; set; } = new();
     public MailSourceSettings Mail { get; set; } = new();
+    public CatalogSettings Catalog { get; set; } = new();
 
     /// <summary>Results at or above this confidence are registered (or dismissed) without human review.</summary>
     public double AutoRegisterThreshold { get; set; } = 0.8;
@@ -47,6 +48,20 @@ public sealed class AiSettings
 
     /// <summary>How many confirmed past mails to send as worked examples.</summary>
     public int ExampleCount { get; set; } = 3;
+
+    /// <summary>Embedding model on the same endpoint for product search; empty uses keyword search only.</summary>
+    public string EmbeddingModel { get; set; } = "";
+}
+
+public sealed class CatalogSettings
+{
+    /// <summary>Search the product master and send candidates to the AI; codes are also matched after analysis.</summary>
+    public bool Enabled { get; set; } = true;
+
+    public string CsvPath { get; set; } = "samples/products.csv";
+
+    /// <summary>How many candidate products to send to the AI per mail.</summary>
+    public int CandidateCount { get; set; } = 8;
 }
 
 public sealed class MailSourceSettings

@@ -28,7 +28,7 @@ public sealed class OrderDraft
         CustomerName = e.CustomerName,
         DeliveryDate = e.DeliveryDate?.ToDateTime(TimeOnly.MinValue),
         Notes = e.Notes,
-        Items = e.Items.Select(i => new OrderDraftItem { ProductName = i.ProductName, Quantity = i.Quantity, Unit = i.Unit, UnitPrice = i.UnitPrice }).ToList(),
+        Items = e.Items.Select(i => new OrderDraftItem { ProductName = i.ProductName, Quantity = i.Quantity, Unit = i.Unit, UnitPrice = i.UnitPrice, ProductCode = i.ProductCode }).ToList(),
     };
 
     public static OrderDraft From(Order o) => new()
@@ -37,7 +37,7 @@ public sealed class OrderDraft
         CustomerName = o.CustomerName,
         DeliveryDate = o.DeliveryDate?.ToDateTime(TimeOnly.MinValue),
         Notes = o.Notes,
-        Items = o.Items.OrderBy(i => i.LineNo).Select(i => new OrderDraftItem { ProductName = i.ProductName, Quantity = i.Quantity, Unit = i.Unit, UnitPrice = i.UnitPrice }).ToList(),
+        Items = o.Items.OrderBy(i => i.LineNo).Select(i => new OrderDraftItem { ProductName = i.ProductName, Quantity = i.Quantity, Unit = i.Unit, UnitPrice = i.UnitPrice, ProductCode = i.ProductCode }).ToList(),
     };
 
     /// <summary>Returns error messages; empty when the draft can be registered.</summary>
@@ -71,6 +71,7 @@ public sealed class OrderDraft
                 Quantity = item.Quantity,
                 Unit = Trim(item.Unit),
                 UnitPrice = item.UnitPrice,
+                ProductCode = Trim(item.ProductCode),
             });
         }
     }
@@ -84,4 +85,5 @@ public sealed class OrderDraftItem
     public decimal Quantity { get; set; } = 1;
     public string? Unit { get; set; }
     public decimal? UnitPrice { get; set; }
+    public string? ProductCode { get; set; }
 }

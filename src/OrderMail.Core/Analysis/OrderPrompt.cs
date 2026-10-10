@@ -46,8 +46,11 @@ public static class OrderPrompt
         - customer_name: 発注元の担当者名（不明なら null）
         - delivery_date: 希望納期（YYYY-MM-DD。不明なら null）
         - notes: 補足（なければ null）
-        - items: 明細の配列。各要素は product_name（品名）、quantity（数値）、unit（単位。不明なら null）、unit_price（税抜単価の数値。不明なら null）。発注でなければ空配列。
+        - items: 明細の配列。各要素は product_name（品名）、quantity（数値）、unit（単位。不明なら null）、unit_price（税抜単価の数値。メールに書かれていなければ null）、product_code（商品コード）。発注でなければ空配列。
+        - product_code: メールの後に「商品マスタの候補」があり、同じ商品が含まれていればそのコード。色・サイズ・容量・長さが違う商品は選ばない。候補がない、または該当しないときは null（コードを推測で作らない）。
         """;
+
+    private const int MaxProductLines = 20;
 
     private const string ExamplesNote = """
         # 手本
@@ -72,7 +75,21 @@ public static class OrderPrompt
         return string.Join("\n\n", parts);
     }
 
-    public static string User(MailInput mail, int maxBodyChars = MaxBodyChars)
+    public static string User(MailInput mail, int maxBodyChars = MaxBodyChars, IReadOnlyList<CatalogProduct>? products = null)
+    {
+        var text = MailText(mail, maxBodyChars);
+        if (products is not { Count: > 0 }) return text;
+        var lines = products.Take(MaxProductLines).Select(p =>
+        {
+            var details = new List<string>();
+            if (!string.IsNullOrWhiteSpace(p.Unit)) details.Add("単位: " + p.Unit);
+            if (p.UnitPrice is { } price) details.Add($"標準単価: {price:#,0.##}円");
+            return $"- {p.Code}: {p.Name}" + (details.Count > 0 ? $"（{string.Join("、", details)}）" : "");
+        });
+        return text + "\n\n商品マスタの候補（本文の品名からアプリが検索済み。似た別商品も含まれる）:\n" + string.Join("\n", lines);
+    }
+
+    private static string MailText(MailInput mail, int maxBodyChars)
     {
         var received = mail.ReceivedAtUtc.ToLocalTime();
         var body = mail.Body.Length > maxBodyChars ? mail.Body[..maxBodyChars] + "\n（以下省略）" : mail.Body;

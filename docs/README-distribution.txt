@@ -18,6 +18,11 @@
   Azure OpenAI は、エンドポイントに https://<リソース名>.openai.azure.com/openai/v1、モデルにデプロイ名を入力します。
   「テスト解析」ボタンで接続を確認できます。
 
+■ 商品マスタ
+  明細の品名を商品マスタと照合して、商品コードと標準単価を付けます。
+  初回起動時に samples\products.csv（サンプル 38 件）を取り込みます。
+  自社の商品マスタは、「設定」画面の「商品マスタ（RAG）」で CSV（列: code, name, aliases, unit, unit_price）を指定して取り込みます。
+
 ■ データ
   data フォルダに保存されます（ordermail.db：受信メールと発注、settings.json：設定）。
   data フォルダを消すと初期状態に戻ります。

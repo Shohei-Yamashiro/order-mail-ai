@@ -70,7 +70,7 @@ else
             <table class="items-table">
                 <thead>
                     <tr>
-                        <th style="width: 46%">品名</th>
+                        <th style="width: 46%">品名／商品コード</th>
                         <th style="width: 16%">数量</th>
                         <th style="width: 14%">単位</th>
                         <th style="width: 18%">単価（円）</th>
@@ -81,10 +81,13 @@ else
                     @foreach (var item in _draft.Items)
                     {
                         <tr>
-                            <td><FluentTextField @bind-Value="item.ProductName" /></td>
-                            <td><FluentNumberField TValue="decimal" @bind-Value="item.Quantity" Min="0" /></td>
+                            <td>
+                                <FluentTextField @bind-Value="item.ProductName" />
+                                <FluentTextField @bind-Value="item.ProductCode" Placeholder="商品コードなし" Class="code-field" Title="商品コード" />
+                            </td>
+                            <td><FluentNumberField TValue="decimal" @bind-Value="item.Quantity" Min="0" HideStep="true" /></td>
                             <td><FluentTextField @bind-Value="item.Unit" /></td>
-                            <td><FluentNumberField TValue="decimal?" @bind-Value="item.UnitPrice" Min="0" /></td>
+                            <td><FluentNumberField TValue="decimal?" @bind-Value="item.UnitPrice" Min="0" HideStep="true" /></td>
                             <td>
                                 <FluentButton Appearance="Appearance.Stealth" IconStart="@(new Icons.Regular.Size16.Delete())" Title="行を削除"
                                               OnClick="@(() => _draft.Items.Remove(item))" />

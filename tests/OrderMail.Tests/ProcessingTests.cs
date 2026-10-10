@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using OrderMail.Core;
 using OrderMail.Core.Analysis;
+using OrderMail.Core.Catalog;
 using OrderMail.Core.Data;
 using OrderMail.Core.Domain;
 using OrderMail.Core.Mail;
@@ -29,7 +30,7 @@ public sealed class ProcessingTests : IDisposable
         store.Save(settings);
 
         using var db = Db();
-        db.Database.EnsureCreated();
+        db.EnsureSchema();
     }
 
     public void Dispose()
@@ -278,6 +279,83 @@ public sealed class ProcessingTests : IDisposable
         Assert.True(answer.IsOrder);
         Assert.Equal("あおぞら工業株式会社", answer.CustomerCompany);
         Assert.False(ExtractionJson.Parse(System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllLines(export.ValidationPath!)[0])!["messages"]![2]!["content"]!.GetValue<string>()).IsOrder);
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Catalog, "古い DB に新しいテーブルと列を足す", "商品マスタのテーブルと明細の商品コード列がない DB（前の版で作ったもの）を開くと、既存のデータを残したまま足りないテーブル・列・索引を追加する。2 回目は何もしない。")]
+    public async Task Schema_upgrade_adds_missing_tables_and_columns_to_old_databases()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        await using (var db = Db())
+        {
+            db.Database.ExecuteSqlRaw("DROP TABLE Products");
+            db.Database.ExecuteSqlRaw("ALTER TABLE OrderItems DROP COLUMN ProductCode");
+        }
+
+        await using (var db = Db())
+        {
+            db.EnsureSchema();
+            db.EnsureSchema();
+        }
+
+        await using (var db = Db())
+        {
+            Assert.Equal(Samples.Labels.Count, await db.Mails.CountAsync());
+            var item = await db.OrderItems.FirstAsync();
+            Assert.Null(item.ProductCode);
+            item.ProductCode = "KP-100";
+            db.Products.Add(new Product { Code = "KP-100", Name = "キッチンペーパー" });
+            await db.SaveChangesAsync();
+            db.Products.Add(new Product { Code = "KP-100", Name = "重複" });
+            await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+        }
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Catalog, "商品マスタを使って発注を登録する", "サンプルの商品マスタ CSV を取り込んで処理すると、自動登録した発注の明細に商品コードが付き、メールに単価がなければマスタの単価が入る（AI なしでも動く）。")]
+    public async Task Processing_with_the_product_master_adds_codes_and_prices()
+    {
+        var catalog = _services.GetRequiredService<ProductCatalogService>();
+        var import = await catalog.ImportCsvAsync(Samples.ProductCsv);
+        Assert.Empty(import.Warnings);
+
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+
+        await using var db = Db();
+        var id = await SampleIdAsync("04");
+        var order = await db.Orders.Include(o => o.Items).SingleAsync(o => o.ReceivedMailId == id);
+        Assert.Equal(["KP-100", "GB-45", "AL-01"], order.Items.OrderBy(i => i.LineNo).Select(i => i.ProductCode));
+        Assert.Equal(3600, order.Items.Single(i => i.ProductCode == "KP-100").UnitPrice);
+        Assert.Equal(import.Count, (await catalog.StatsAsync(null)).Count);
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Catalog, "商品マスタの取り込みと初回の自動取り込み", "商品マスタが空なら設定の CSV を自動で取り込み、空でなければ取り込まない。取り込み直しは全件を置き換え、名前の変わらない商品は作成済みのベクトルを残す。無効にしたら検索しない。")]
+    public async Task Catalog_import_replaces_products_and_keeps_unchanged_vectors()
+    {
+        var catalog = _services.GetRequiredService<ProductCatalogService>();
+        var csv = Path.Combine(_dataDir, "products.csv");
+        File.WriteAllText(csv, "code,name,unit,unit_price\nA-1,封筒,枚,10\nB-1,便箋,冊,200\n");
+        var settings = new AppSettings { Catalog = { CsvPath = csv }, Ai = { EmbeddingModel = "e" } };
+
+        await catalog.ImportIfEmptyAsync(settings.Catalog);
+        await using (var db = Db())
+        {
+            Assert.Equal(2, await db.Products.CountAsync());
+            foreach (var p in db.Products) { p.Embedding = ProductIndex.ToBytes([1f]); p.EmbeddingModel = "e"; }
+            await db.SaveChangesAsync();
+        }
+        File.WriteAllText(csv, "code,name,unit,unit_price\nA-1,封筒,枚,12\nB-1,便箋 A4,冊,200\nC-1,ハガキ,枚,5\n");
+        await catalog.ImportIfEmptyAsync(settings.Catalog);
+        Assert.Equal(new CatalogStats(2, 2), await catalog.StatsAsync("e"));
+
+        var result = await catalog.ImportCsvAsync(csv);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal(1, result.KeptVectors);
+        Assert.Equal(new CatalogStats(3, 1), await catalog.StatsAsync("e"));
+        settings.Catalog.Enabled = false;
+        await using (var db = Db()) Assert.Null(await catalog.OpenAsync(db, settings));
     }
 
     [Fact]

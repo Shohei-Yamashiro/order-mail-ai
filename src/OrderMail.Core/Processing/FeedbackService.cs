@@ -55,10 +55,10 @@ public sealed class FeedbackService(IDbContextFactory<OrderMailDbContext> dbFact
         return new FeedbackReport(overall, byAnalyzer);
     }
 
-    /// <summary>"AI（qwen2.5:7b）・手本3件" and "AI（qwen2.5:7b）・手本1件" are the same analyzer.</summary>
+    /// <summary>"AI（qwen2.5:7b）・手本3件・候補8件" and "AI（qwen2.5:7b）・手本1件" are the same analyzer.</summary>
     public static string BaseName(string analyzerLabel)
     {
-        var i = analyzerLabel.IndexOf("・手本", StringComparison.Ordinal);
+        var i = analyzerLabel.IndexOf('・');
         return i < 0 ? analyzerLabel : analyzerLabel[..i];
     }
 }
