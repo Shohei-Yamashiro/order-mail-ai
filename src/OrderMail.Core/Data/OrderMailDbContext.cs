@@ -9,6 +9,7 @@ public sealed class OrderMailDbContext(DbContextOptions<OrderMailDbContext> opti
     public DbSet<MailAnalysis> Analyses => Set<MailAnalysis>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+    public DbSet<Product> Products => Set<Product>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,6 +27,12 @@ public sealed class OrderMailDbContext(DbContextOptions<OrderMailDbContext> opti
             e.HasIndex(o => o.ReceivedMailId).IsUnique();
             e.Property(o => o.RegisteredBy).HasConversion<string>();
             e.HasMany(o => o.Items).WithOne().HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Product>(e =>
+        {
+            e.HasIndex(p => p.Code).IsUnique();
+            e.Ignore(p => p.SearchText);
         });
     }
 }

@@ -39,9 +39,10 @@ public static partial class ExtractionJson
                   "product_name": { "type": "string" },
                   "quantity": { "type": "number" },
                   "unit": { "type": ["string", "null"] },
-                  "unit_price": { "type": ["number", "null"] }
+                  "unit_price": { "type": ["number", "null"] },
+                  "product_code": { "type": ["string", "null"] }
                 },
-                "required": ["product_name", "quantity", "unit", "unit_price"],
+                "required": ["product_name", "quantity", "unit", "unit_price", "product_code"],
                 "additionalProperties": false
               }
             }
@@ -68,6 +69,7 @@ public static partial class ExtractionJson
             Quantity = i.Quantity,
             Unit = i.Unit,
             UnitPrice = i.UnitPrice,
+            ProductCode = i.ProductCode,
         }).ToList(),
     }, indented ? Options : CompactOptions);
 
@@ -98,7 +100,7 @@ public static partial class ExtractionJson
                 var name = ToText(node["product_name"]);
                 var quantity = ToDecimal(node["quantity"]);
                 if (name is null || quantity is not > 0) continue;
-                items.Add(new ExtractedItem(name, quantity.Value, ToText(node["unit"]), ToDecimal(node["unit_price"])));
+                items.Add(new ExtractedItem(name, quantity.Value, ToText(node["unit"]), ToDecimal(node["unit_price"]), ToText(node["product_code"])));
             }
         }
 
@@ -187,5 +189,6 @@ public static partial class ExtractionJson
         public decimal Quantity { get; set; }
         public string? Unit { get; set; }
         public decimal? UnitPrice { get; set; }
+        public string? ProductCode { get; set; }
     }
 }

@@ -21,12 +21,13 @@ public static class SpecCategories
     public const string Parsing = "AI の出力の読み取り";
     public const string Processing = "振り分けと人の確認";
     public const string Examples = "手本と評価";
+    public const string Catalog = "商品マスタ（RAG）";
     public const string Feedback = "フィードバックとチューニング";
     public const string Settings = "設定";
     public const string Meta = "テスト基盤";
 
     /// <summary>Order of sections in the document.</summary>
-    public static readonly string[] All = [Import, RuleBased, Ai, Prompt, Parsing, Processing, Examples, Feedback, Settings, Meta];
+    public static readonly string[] All = [Import, RuleBased, Ai, Prompt, Parsing, Processing, Examples, Catalog, Feedback, Settings, Meta];
 }
 
 public class SpecCoverageTests

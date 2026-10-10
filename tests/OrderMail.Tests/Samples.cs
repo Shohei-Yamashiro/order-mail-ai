@@ -4,7 +4,8 @@ using OrderMail.Core.Mail;
 
 namespace OrderMail.Tests;
 
-public sealed record SampleLabel(string File, bool IsOrder, int Items);
+/// <param name="Codes">Product master codes of the order lines, in mail order.</param>
+public sealed record SampleLabel(string File, bool IsOrder, int Items, IReadOnlyList<string>? Codes = null);
 
 internal static class Samples
 {
@@ -13,6 +14,8 @@ internal static class Samples
     public static IReadOnlyList<SampleLabel> Labels { get; } = JsonSerializer.Deserialize<List<SampleLabel>>(
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "samples", "labels.json")),
         new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    public static string ProductCsv => Path.Combine(AppContext.BaseDirectory, "samples", "products.csv");
 
     public static FetchedMail Load(string file)
     {

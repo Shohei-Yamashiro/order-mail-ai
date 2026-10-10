@@ -26,18 +26,18 @@ public sealed class OpenAiCompatibleOrderAnalyzer(HttpClient http, AiSettings se
 
     public string Name => $"AI（{settings.Model}）";
 
-    public async Task<OrderExtraction> AnalyzeAsync(MailInput mail, IReadOnlyList<AnalysisExample> examples, CancellationToken ct)
+    public async Task<OrderExtraction> AnalyzeAsync(MailInput mail, AnalysisContext context, CancellationToken ct)
     {
         var messages = new List<object>
         {
-            new { role = "system", content = OrderPrompt.System(settings, mail.ReceivedAtUtc.ToLocalTime(), examples.Count > 0) },
+            new { role = "system", content = OrderPrompt.System(settings, mail.ReceivedAtUtc.ToLocalTime(), context.Examples.Count > 0) },
         };
-        foreach (var example in examples)
+        foreach (var example in context.Examples)
         {
             messages.Add(new { role = "user", content = OrderPrompt.User(example.Mail, OrderPrompt.MaxExampleBodyChars) });
             messages.Add(new { role = "assistant", content = OrderPrompt.Answer(example.Expected) });
         }
-        messages.Add(new { role = "user", content = OrderPrompt.User(mail) });
+        messages.Add(new { role = "user", content = OrderPrompt.User(mail, products: context.Products) });
 
         var content = await CompleteAsync(messages, ct);
         OrderExtraction result;
@@ -132,4 +132,10 @@ public sealed class AnalyzerFactory
             settings),
         _ => new RuleBasedOrderAnalyzer(),
     };
+
+    /// <summary>Null when no embedding model is set; product search then uses keywords only.</summary>
+    public IEmbedder? CreateEmbedder(AiSettings settings) =>
+        settings.Provider == AiProvider.OpenAiCompatible && !string.IsNullOrWhiteSpace(settings.EmbeddingModel)
+            ? new OpenAiCompatibleEmbedder(new HttpClient(SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromSeconds(Math.Max(5, settings.TimeoutSeconds)) }, settings)
+            : null;
 }

@@ -7,6 +7,7 @@
 @inject PromptEvaluator Evaluator
 @inject ReviewService Review
 @inject MailProcessor Processor
+@inject ProductCatalogService Catalog
 @inject IDialogService Dialogs
 @inject IToastService Toast
 @implements IDisposable
@@ -126,6 +127,70 @@
     }
 
     <section class="panel">
+        <h3>商品マスタ（RAG）</h3>
+        <p class="sub">メールの品名を自社の商品マスタと照合し、明細に商品コードを付けます。AI を使うときは、本文から検索した候補をメールと一緒に渡し、その中から選ばせます（RAG）。AI の答えのコードはマスタで確かめ、メールに単価がなければマスタの単価を入れます。AI を使わないときも、品名が 1 つの商品に決まれば照合します。</p>
+        <div class="row">
+            <div class="field" style="align-self: end"><FluentSwitch Label="商品マスタを使う" @bind-Value="_s.Catalog.Enabled" /></div>
+            <div class="field wide">
+                <FluentTextField Label="CSV ファイル（列: code, name, aliases, unit, unit_price。相対パスはアプリの場所から）" @bind-Value="_s.Catalog.CsvPath" />
+                <div class="sub">@Catalog.ResolvePath(_s.Catalog.CsvPath)</div>
+            </div>
+        </div>
+        <div class="actions" style="margin-top: 0">
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowImport())" Disabled="_catalogBusy" OnClick="ImportCatalogAsync">CSV を取り込む（置き換え）</FluentButton>
+            <span class="sub" style="align-self: center">@CatalogStatus</span>
+        </div>
+
+        @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
+        {
+            <div class="row">
+                <div class="field"><FluentNumberField TValue="int" Label="AI に渡す候補の数" @bind-Value="_s.Catalog.CandidateCount" Min="1" Max="20" /></div>
+                <div class="field"><FluentTextField Label="埋め込みモデル（空欄ならキーワード検索のみ）" Placeholder="例: text-embedding-3-small" @bind-Value="_s.Ai.EmbeddingModel" /></div>
+            </div>
+            <p class="sub">埋め込みモデルを設定すると、言葉が一致しない書き方（「無線マウス」と「ワイヤレスマウス」など）も意味の近さで探します。チャットと同じ接続先・API キーを使います（Azure OpenAI ではデプロイ名、Ollama では bge-m3 など）。モデルを変えたらベクトルを作り直してください。</p>
+            <div class="actions" style="margin-top: 0">
+                <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.DataUsage())"
+                              Disabled="@(_catalogBusy || string.IsNullOrWhiteSpace(_s.Ai.EmbeddingModel))" OnClick="BuildVectorsAsync">ベクトルを作成</FluentButton>
+                @if (_catalogBusy)
+                {
+                    <FluentProgressRing Width="16px" Style="align-self: center" />
+                    <span class="sub" style="align-self: center">@_catalogProgress</span>
+                }
+            </div>
+        }
+
+        <div class="row">
+            <div class="field wide"><FluentTextField Label="試しに検索（メールの一文など）" Placeholder="例: 無線マウス 黒を25個" Immediate="true" @bind-Value="_searchText" /></div>
+            <div class="field" style="align-self: end">
+                <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Search())" Disabled="@(_catalogBusy || string.IsNullOrWhiteSpace(_searchText))" OnClick="SearchCatalogAsync">検索</FluentButton>
+            </div>
+        </div>
+        @if (_hits is not null)
+        {
+            if (_hits.Count == 0)
+            {
+                <p class="sub">候補は見つかりませんでした。</p>
+            }
+            else
+            {
+                <table class="eval-table">
+                    <tr><th>コード</th><th>商品名</th><th>単価</th><th>キーワード</th><th>意味（ベクトル）</th></tr>
+                    @foreach (var h in _hits)
+                    {
+                        <tr>
+                            <td>@h.Product.Code</td>
+                            <td>@h.Product.Name</td>
+                            <td>@(h.Product.UnitPrice?.ToString("#,0.##") ?? "－")</td>
+                            <td>@h.Keyword.ToString("0.00")</td>
+                            <td>@(h.Vector?.ToString("0.00") ?? "－")</td>
+                        </tr>
+                    }
+                </table>
+            }
+        }
+    </section>
+
+    <section class="panel">
         <h3>評価</h3>
         <p class="sub">担当者が確定したメール（新しい順に @MaxEvalMails 件まで）を、この画面の設定（保存前でも可）で解析し直して、確定した内容と比べます。結果は保存されず、メールの状態も変わりません。手本は評価するメール自身を除いて選びます。</p>
         <div class="actions" style="margin-top: 0">
@@ -238,11 +303,87 @@
 
     private int? _reviewedCount;
 
+    private bool _catalogBusy;
+    private string? _catalogProgress;
+    private CatalogStats? _catalogStats;
+    private string? _searchText;
+    private IReadOnlyList<ProductHit>? _hits;
+
     protected override async Task OnInitializedAsync()
     {
         _s = Store.Current;
         _instructions = OrderPrompt.Instructions(_s.Ai);
         _reviewedCount = await Review.CountReviewedAsync();
+        await RefreshCatalogStatsAsync();
+    }
+
+    private string CatalogStatus => _catalogStats is not { } s ? "…"
+        : s.Count == 0 ? "商品マスタは空です。"
+        : string.IsNullOrWhiteSpace(_s.Ai.EmbeddingModel) || _s.Ai.Provider != AiProvider.OpenAiCompatible ? $"登録 {s.Count} 件"
+        : $"登録 {s.Count} 件・ベクトル作成済み {s.Embedded} 件（{_s.Ai.EmbeddingModel.Trim()}）";
+
+    private async Task RefreshCatalogStatsAsync() => _catalogStats = await Catalog.StatsAsync(_s.Ai.EmbeddingModel);
+
+    private async Task ImportCatalogAsync()
+    {
+        _catalogBusy = true;
+        try
+        {
+            var result = await Catalog.ImportCsvAsync(_s.Catalog.CsvPath);
+            if (result.Count == 0)
+            {
+                Toast.ShowError("取り込めませんでした: " + string.Join(" ", result.Warnings));
+                return;
+            }
+            var kept = result.KeptVectors > 0 ? $"（作成済みのベクトル {result.KeptVectors} 件はそのまま）" : "";
+            Toast.ShowSuccess($"{result.Count} 件を取り込みました{kept}。" + (result.Warnings.Count > 0 ? " " + string.Join(" ", result.Warnings.Take(3)) : ""));
+            _hits = null;
+        }
+        finally
+        {
+            _catalogBusy = false;
+            await RefreshCatalogStatsAsync();
+        }
+    }
+
+    private async Task BuildVectorsAsync()
+    {
+        _catalogBusy = true;
+        var progress = new Progress<string>(p =>
+        {
+            _catalogProgress = p;
+            StateHasChanged();
+        });
+        try
+        {
+            var count = await Catalog.BuildEmbeddingsAsync(_s.Copy().Ai, progress);
+            Toast.ShowSuccess(count == 0 ? "すべての商品のベクトルを作成済みです。" : $"{count} 件のベクトルを作成しました。設定を保存すると解析で使います。");
+        }
+        catch (Exception e)
+        {
+            Toast.ShowError("ベクトルを作成できませんでした: " + e.Message);
+        }
+        finally
+        {
+            _catalogBusy = false;
+            _catalogProgress = null;
+            await RefreshCatalogStatsAsync();
+        }
+    }
+
+    private async Task SearchCatalogAsync()
+    {
+        _catalogBusy = true;
+        try
+        {
+            var settings = _s.Copy();
+            settings.Catalog.Enabled = true;
+            _hits = await Catalog.SearchAsync(_searchText ?? "", settings);
+        }
+        finally
+        {
+            _catalogBusy = false;
+        }
     }
 
     private async Task ClearReviewsAsync()
@@ -289,8 +430,8 @@
         }
         ApplyInstructions();
         _preview = OrderPrompt.System(_s.Ai, TestMail.ReceivedAtUtc.ToLocalTime(), _s.Ai.ExampleCount > 0)
-            + "\n\n────────\n（ここに手本のメールと正しい出力が続き、最後に解析するメールが入ります。例：）\n\n"
-            + OrderPrompt.User(TestMail);
+            + "\n\n────────\n（ここに手本のメールと正しい出力が続き、最後に解析するメールと商品マスタの候補が入ります。例：）\n\n"
+            + OrderPrompt.User(TestMail, products: [new CatalogProduct("CP-A4-2500", "A4コピー用紙 500枚×5冊入", "箱", 2980)]);
     }
 
     private async Task EvaluateAsync()
@@ -340,6 +481,7 @@
     {
         ApplyInstructions();
         _s.AutoRegisterThreshold = Math.Clamp(_s.AutoRegisterThreshold, 0, 1);
+        _s.Catalog.CandidateCount = Math.Clamp(_s.Catalog.CandidateCount, 1, 20);
         Store.Save(_s);
         Toast.ShowSuccess("設定を保存しました。");
     }
@@ -349,12 +491,15 @@
         _testing = true;
         _aiTestResult = null;
         ApplyInstructions();
-        var analyzer = Analyzers.Create(_s.Copy().Ai);
+        var settings = _s.Copy();
+        var analyzer = Analyzers.Create(settings.Ai);
         var watch = Stopwatch.StartNew();
         try
         {
-            var result = await analyzer.AnalyzeAsync(TestMail, [], CancellationToken.None);
-            _aiTestResult = $"成功：{analyzer.Name}（{watch.ElapsedMilliseconds} ms）\n\n{ExtractionJson.Serialize(result)}";
+            var products = settings.Ai.Provider == AiProvider.OpenAiCompatible ? await Catalog.CandidatesAsync(TestMail, settings) : [];
+            var result = await analyzer.AnalyzeAsync(TestMail, new AnalysisContext([], products), CancellationToken.None);
+            var candidates = products.Count > 0 ? $"・商品マスタの候補 {products.Count} 件" : "";
+            _aiTestResult = $"成功：{analyzer.Name}{candidates}（{watch.ElapsedMilliseconds} ms）\n\n{ExtractionJson.Serialize(result)}";
         }
         catch (Exception e)
         {

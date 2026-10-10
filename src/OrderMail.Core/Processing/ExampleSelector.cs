@@ -50,7 +50,7 @@ public static class ExampleSelector
             CustomerName = order.CustomerName,
             DeliveryDate = order.DeliveryDate,
             Notes = order.Notes,
-            Items = order.Items.OrderBy(i => i.LineNo).Select(i => new ExtractedItem(i.ProductName, i.Quantity, i.Unit, i.UnitPrice)).ToList(),
+            Items = order.Items.OrderBy(i => i.LineNo).Select(i => new ExtractedItem(i.ProductName, i.Quantity, i.Unit, i.UnitPrice, i.ProductCode)).ToList(),
         };
     }
 

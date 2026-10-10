@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using OrderMail.Core.Analysis;
+using OrderMail.Core.Catalog;
 using OrderMail.Core.Data;
 using OrderMail.Core.Domain;
 using OrderMail.Core.Mail;
@@ -17,6 +18,7 @@ public sealed class MailProcessor(
     SettingsStore settingsStore,
     MailSourceFactory sources,
     AnalyzerFactory analyzers,
+    ProductCatalogService catalogs,
     TimeProvider time,
     ILogger<MailProcessor> logger)
 {
@@ -102,15 +104,22 @@ public sealed class MailProcessor(
                 .ToListAsync(ct);
         }
 
-        var analyzer = analyzers.Create(settings.Ai);
+        if (ids.Count == 0) return (0, 0);
+        var pipeline = await CreatePipelineAsync(settings, ct);
         int analyzed = 0, failed = 0;
         for (var i = 0; i < ids.Count; i++)
         {
-            Report($"解析中 {i + 1}/{ids.Count}（{analyzer.Name}）");
-            if (await AnalyzeOneAsync(ids[i], analyzer, settings, ct)) analyzed++;
+            Report($"解析中 {i + 1}/{ids.Count}（{pipeline.Analyzer.Name}）");
+            if (await AnalyzeOneAsync(ids[i], pipeline, settings, ct)) analyzed++;
             else failed++;
         }
         return (analyzed, failed);
+    }
+
+    private async Task<AnalysisPipeline> CreatePipelineAsync(AppSettings settings, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return new AnalysisPipeline(analyzers.Create(settings.Ai), await catalogs.OpenAsync(db, settings, ct), settings);
     }
 
     public async Task<bool> ReanalyzeAsync(int mailId, CancellationToken ct = default)
@@ -120,9 +129,9 @@ public sealed class MailProcessor(
         {
             IsRunning = true;
             var settings = settingsStore.Current;
-            var analyzer = analyzers.Create(settings.Ai);
-            Report($"再解析中（{analyzer.Name}）");
-            return await AnalyzeOneAsync(mailId, analyzer, settings, ct);
+            var pipeline = await CreatePipelineAsync(settings, ct);
+            Report($"再解析中（{pipeline.Analyzer.Name}）");
+            return await AnalyzeOneAsync(mailId, pipeline, settings, ct);
         }
         finally
         {
@@ -132,19 +141,17 @@ public sealed class MailProcessor(
         }
     }
 
-    private async Task<bool> AnalyzeOneAsync(int mailId, IOrderAnalyzer analyzer, AppSettings settings, CancellationToken ct)
+    private async Task<bool> AnalyzeOneAsync(int mailId, AnalysisPipeline pipeline, AppSettings settings, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var mail = await db.Mails.Include(m => m.Order).SingleAsync(m => m.Id == mailId, ct);
-        var examples = settings.Ai.Provider == AiProvider.OpenAiCompatible
-            ? await ExampleSelector.SelectAsync(db, mail, settings.Ai.ExampleCount, ct)
-            : [];
 
         var watch = Stopwatch.StartNew();
         OrderExtraction result;
+        string label;
         try
         {
-            result = await analyzer.AnalyzeAsync(MailInput.From(mail), examples, ct);
+            (result, label, _, _) = await pipeline.AnalyzeAsync(db, mail, ct);
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
@@ -159,7 +166,7 @@ public sealed class MailProcessor(
         db.Analyses.Add(new MailAnalysis
         {
             ReceivedMailId = mail.Id,
-            Analyzer = AnalyzerLabel(analyzer, examples.Count),
+            Analyzer = label,
             IsOrder = result.IsOrder,
             Confidence = result.Confidence,
             Reason = result.Reason,
@@ -189,9 +196,6 @@ public sealed class MailProcessor(
         await db.SaveChangesAsync(ct);
         return true;
     }
-
-    public static string AnalyzerLabel(IOrderAnalyzer analyzer, int exampleCount) =>
-        exampleCount > 0 ? $"{analyzer.Name}・手本{exampleCount}件" : analyzer.Name;
 
     private void Report(string? progress)
     {
