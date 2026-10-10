@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.FluentUI.AspNetCore.Components;
 using OrderMail.Core;
@@ -16,6 +17,9 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 
 var dataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, builder.Configuration["DataDirectory"] ?? "data"));
 
+var dataProtection = builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDirectory, "keys")));
+if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddFluentUIComponents();
 builder.Services.AddOrderMailCore(dataDirectory, AppContext.BaseDirectory);

@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>発注メール AI 仕分け（OrderMail）のご紹介</title>
+<style>
+  @page { size: A4; margin: 14mm 16mm; }
+  :root { --accent: #0f6cbd; --accent-fill: #ebf3fc; --text: #1b1b1f; --text2: #4d5059; --text3: #7b7e87; --stroke: #d9dbe0; --surface: #f5f6f8; --ext: #fdf6e7; --ext-stroke: #e3c98f; --ai: #f1ecfb; --ai-stroke: #b9a5e3; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; color: var(--text); font: 10.5pt/1.6 "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif; }
+  .page { break-after: page; max-width: 178mm; margin: 0 auto; }
+  .page:last-child { break-after: auto; }
+  @media screen { body { background: #e9eaee; padding: 24px 0; } .page { background: #fff; padding: 14mm 16mm; margin-bottom: 24px; max-width: 210mm; min-height: 297mm; } }
+  h1 { font-size: 22pt; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 15pt; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  h3 { font-size: 11.5pt; margin: 18px 0 6px; }
+  p { margin: 6px 0; }
+  .chapter { font-size: 9pt; color: var(--accent); font-weight: 600; letter-spacing: .08em; margin-bottom: 2px; }
+  .lead { color: var(--text2); font-size: 11pt; margin-top: 8px; }
+  .cover { padding: 18px 0 14px; border-bottom: 1px solid var(--stroke); margin-bottom: 18px; }
+  .muted { color: var(--text2); }
+  .small { font-size: 9pt; color: var(--text3); }
+  ul { margin: 6px 0; padding-left: 1.3em; }
+  li { margin: 3px 0; }
+  .flow { display: flex; align-items: stretch; gap: 0; margin: 12px 0 4px; }
+  .flow .step { flex: 1; border: 1px solid var(--stroke); border-radius: 6px; padding: 8px 9px; background: #fff; }
+  .flow .step.human { background: var(--accent-fill); border-color: var(--accent); }
+  .flow .step b { display: block; font-size: 10pt; }
+  .flow .step span { font-size: 8.5pt; color: var(--text2); line-height: 1.5; display: block; margin-top: 2px; }
+  .flow .arrow { width: 16px; display: flex; align-items: center; justify-content: center; color: var(--text3); font-size: 11pt; }
+  .loop { font-size: 9pt; color: var(--accent); text-align: right; margin-top: 2px; }
+
+  .box { border: 1px solid var(--stroke); border-radius: 6px; padding: 6px 9px; background: #fff; font-size: 8.5pt; line-height: 1.5; color: var(--text2); }
+  .box b { display: block; font-size: 9.5pt; color: var(--text); }
+  .box.ext { background: var(--ext); border-color: var(--ext-stroke); }
+  .box.ai { background: var(--ai); border-color: var(--ai-stroke); }
+  .box.app { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .box.app b { color: #fff; }
+  .box.human { background: var(--accent-fill); border-color: var(--accent); }
+  .harrow { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text3); font-size: 14pt; line-height: 1; padding: 0 4px; }
+  .harrow small { font-size: 7.5pt; line-height: 1.3; text-align: center; margin-top: 3px; }
+  .varrow { text-align: center; color: var(--text3); font-size: 12pt; line-height: 1.2; }
+
+  .overview { display: grid; grid-template-columns: 34mm 15mm 1fr 17mm 40mm; align-items: center; margin: 10px 0 4px; }
+  .overview .col { display: flex; flex-direction: column; gap: 2px; }
+  .overview .pc { border: 1.5px dashed var(--accent); border-radius: 8px; padding: 6px 8px 8px; }
+  .overview .pc-title { font-size: 8.5pt; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+  .overview .pc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .legend { display: flex; gap: 14px; font-size: 8pt; color: var(--text3); margin-top: 4px; }
+  .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; border: 1px solid; }
+  .legend .l-ext::before { background: var(--ext); border-color: var(--ext-stroke); }
+  .legend .l-app::before { background: var(--accent); border-color: var(--accent); }
+  .legend .l-ai::before { background: var(--ai); border-color: var(--ai-stroke); }
+
+  .m365 { margin: 10px 0 4px; }
+  .m365 .row { display: grid; grid-template-columns: 1fr 14px 1fr 14px 1fr; align-items: stretch; }
+  .m365 .branch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+  .m365 .branch .lbl { font-size: 8pt; color: var(--text3); margin-bottom: 2px; }
+  .m365 .harrow { font-size: 11pt; padding: 0; }
+
+  figure { margin: 4px 0 6px; break-inside: avoid; }
+  figure img { max-width: 100%; max-height: 120mm; border: 1px solid var(--stroke); border-radius: 4px; display: block; margin: 0 auto; }
+  .screen h3 { margin: 6px 0 6px; font-size: 13pt; }
+  .screen .points li { font-size: 10pt; margin: 6px 0; }
+  .points { margin: 4px 0 0; padding: 0; list-style: none; counter-reset: p; }
+  .points li { counter-increment: p; padding-left: 1.7em; position: relative; font-size: 9.5pt; }
+  .points li::before { content: counter(p); position: absolute; left: 0; top: .15em; width: 1.25em; height: 1.25em; border-radius: 50%; background: var(--accent); color: #fff; font-size: 8pt; line-height: 1.25em; text-align: center; font-weight: 600; }
+  .features { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 8px; }
+  .feature { border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; }
+  .feature b { display: block; }
+  .feature span { color: var(--text2); font-size: 9.5pt; }
+  .steps { counter-reset: s; margin: 8px 0; padding: 0; list-style: none; }
+  .steps > li { counter-increment: s; position: relative; padding-left: 2.1em; margin: 5px 0; }
+  .steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 1.5em; height: 1.5em; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); font-weight: 700; line-height: 1.4em; text-align: center; font-size: 10pt; }
+  .smartscreen { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 4px; }
+  .ss { background: #0f5ea8; color: #fff; padding: 12px 14px 10px; border-radius: 2px; font-size: 8pt; line-height: 1.55; min-height: 128px; position: relative; }
+  .ss .t { font-size: 12pt; margin-bottom: 8px; }
+  .ss .link { text-decoration: underline; font-weight: 600; outline: 2px solid #ffd54a; outline-offset: 2px; }
+  .ss .btns { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 6px; }
+  .ss .btn { border: 1px solid #fff; padding: 2px 14px; }
+  .ss .btn.run { outline: 2px solid #ffd54a; outline-offset: 2px; font-weight: 600; }
+  .ss .lbl { position: absolute; left: -2px; top: -18px; color: var(--text2); font-size: 8.5pt; }
+  .note { background: var(--surface); border-radius: 6px; padding: 8px 12px; font-size: 9.5pt; margin: 10px 0; }
+  .qa { margin: 0 0 12px; }
+  .qa dt { font-weight: 700; margin-top: 10px; }
+  .qa dt::before { content: "Q. "; color: var(--accent); }
+  .qa dd { margin: 3px 0 0 1.6em; color: var(--text); }
+  table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin: 6px 0; }
+  th, td { border-bottom: 1px solid var(--stroke); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { width: 26%; color: var(--text2); font-weight: 600; background: var(--surface); }
+  table.compare th { width: 17%; }
+  table.compare thead th { background: #fff; color: var(--text); border-bottom: 2px solid var(--accent); width: auto; }
+  table.compare td { font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<!-- 1. ご紹介 -->
+<section class="page">
+  <div class="cover">
+    <div class="chapter">ご紹介</div>
+    <h1>発注メール AI 仕分け</h1>
+    <p class="lead">届いたメールの中から発注メールを見分け、品名・数量・単価を発注一覧にまとめる Windows 用のアプリです。</p>
+  </div>
+
+  <h2>全体の概要</h2>
+  <div class="overview">
+    <div class="col">
+      <div class="box ext"><b>取引先</b>発注や問い合わせのメールを送る</div>
+      <div class="varrow">↓</div>
+      <div class="box ext"><b>メールサーバー</b>または、メールを .eml 形式で保存したフォルダ</div>
+    </div>
+    <div class="harrow">→<small>取り込み</small></div>
+    <div class="pc">
+      <div class="pc-title">お使いのパソコン</div>
+      <div class="box app"><b>OrderMail（このアプリ）</b>取り込み → 判定・読み取り → 振り分け</div>
+      <div class="pc-row">
+        <div class="box"><b>data フォルダ</b>メール・発注・設定を保存</div>
+        <div class="box human"><b>ブラウザの画面</b>担当者が確認・修正</div>
+      </div>
+    </div>
+    <div class="harrow">⇄<small>本文を送り<br>結果を受け取る</small></div>
+    <div class="col">
+      <div class="box ai"><b>AI（使う場合）</b>クラウドの AI<br>（Azure OpenAI など）<br>または、パソコン内で動く AI（Ollama など）</div>
+    </div>
+  </div>
+  <div class="legend"><span class="l-ext">外部（メール）</span><span class="l-app">このアプリ</span><span class="l-ai">AI（任意）</span></div>
+  <p class="small">AI を使わない場合は、アプリの中の決まった規則で判定し、外部とは通信しません。</p>
+
+  <h2 style="margin-top:18px">こんな困りごとはありませんか</h2>
+  <ul>
+    <li>発注のメールが、問い合わせ・請求・宣伝などのメールに埋もれてしまう</li>
+    <li>メールに書かれた品名や数量を、手で転記するのに時間がかかる</li>
+    <li>取引先ごとに書き方がばらばらで、読み取りに気を遣う</li>
+    <li>見落としや転記ミスが心配で、何度も見直している</li>
+  </ul>
+
+  <h2 style="margin-top:18px">このアプリがすること</h2>
+  <div class="flow">
+    <div class="step"><b>メールを取り込む</b><span>メールサーバーや、保存したメールのフォルダから読み込みます</span></div>
+    <div class="arrow">›</div>
+    <div class="step"><b>発注かどうかを判定</b><span>判定の理由と、どのくらい確かかを表示します</span></div>
+    <div class="arrow">›</div>
+    <div class="step"><b>発注内容を読み取る</b><span>会社名・品名・数量・単価・納期を取り出し、商品マスタの商品コードを付けます</span></div>
+    <div class="arrow">›</div>
+    <div class="step human"><b>迷うものだけ人が確認</b><span>確かなものは自動で振り分け、迷うものだけを「要確認」にします</span></div>
+    <div class="arrow">›</div>
+    <div class="step"><b>発注一覧にまとめる</b><span>確定した発注を一覧で確認できます</span></div>
+  </div>
+  <p class="loop">人が直した内容は、次に似たメールを判定するときの手本になります</p>
+</section>
+
+<section class="page">
+  <div class="chapter">ご紹介</div>
+  <h2>特長</h2>
+  <div class="features">
+    <div class="feature"><b>確認する量を減らせる</b><span>確かな判定は自動で振り分けます。<br>自動で振り分ける基準（どのくらい確かなら任せるか）は、設定で変えられます。</span></div>
+    <div class="feature"><b>判断の理由がわかる</b><span>「発注」と判定した理由と、その確かさを、メールごとに表示します。</span></div>
+    <div class="feature"><b>自社の商品に合わせて読み取る</b><span>メールの品名を自社の商品マスタと照らし合わせ、商品コードと標準単価を付けます。</span></div>
+    <div class="feature"><b>使うほど取引先に合っていく</b><span>人が確定した内容を手本として覚え、取引先ごとの書き方に合わせて読み取ります。</span></div>
+    <div class="feature"><b>AI を選べる</b><span>AI を使わない方式でも動きます。<br>AI を使う場合は、クラウドの AI と、パソコンの中で動く AI から選べます。</span></div>
+    <div class="feature"><b>データは手元に</b><span>取り込んだメールや発注は、このアプリのフォルダの中に保存します。</span></div>
+  </div>
+
+  <h3 style="margin-top:22px">今後の予定</h3>
+  <ul>
+    <li>判断の根拠となったメールの箇所を、画面上で示す</li>
+    <li>添付ファイル（Excel・Word・PDF）の発注書も読み取る（文字を画像から読み取る機能を含む）</li>
+  </ul>
+
+  <h3 style="margin-top:22px">制作について</h3>
+  <p>このアプリは、作者が AI コーディングエージェント（Cursor）と協働して開発しました。<br>
+  要件と設計の判断、動作の確認は作者が行い、コードの作成は主に AI エージェントが担当しています。</p>
+</section>
+
+<!-- 2. 画面の紹介 -->
+<section class="page">
+  <div class="chapter">ご紹介</div>
+  <h2>画面の紹介</h2>
+
+  <div class="screen">
+    <h3>受信メール</h3>
+    <figure><img src="images/mails.png" alt="受信メールの一覧"></figure>
+    <ol class="points">
+      <li>「取り込み・解析」を押すと、新しいメールを読み込んで判定します。<br>一定の間隔で自動的に取り込むこともできます。</li>
+      <li>「すべて」「要確認」「発注」「発注以外」で絞り込めます。<br>まずは「要確認」を確認します。</li>
+      <li>キーワードで、件名・差出人・本文・発注の内容から探せます。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="page">
+  <div class="chapter">ご紹介</div>
+  <h2>画面の紹介</h2>
+
+  <div class="screen">
+    <h3>メールの詳細</h3>
+    <figure><img src="images/detail.png" alt="メールの詳細と発注内容"></figure>
+    <ol class="points">
+      <li>左にメールの本文、右に読み取った発注内容を並べて表示します。</li>
+      <li>上部に、判定の結果・確かさ・判定の理由を表示します。</li>
+      <li>内容を直して「この内容で確定」または「発注ではない」を押します。<br>確定した内容は、次の判定の手本になります。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="page">
+  <div class="chapter">ご紹介</div>
+  <h2>画面の紹介</h2>
+
+  <div class="screen">
+    <h3>発注一覧</h3>
+    <figure><img src="images/orders.png" alt="発注一覧"></figure>
+    <ol class="points">
+      <li>自動で振り分けたものと、人が確定したものを、受信日時・発注元・明細・金額・希望納期で一覧にします。</li>
+      <li>行を押すと、元のメールと発注内容を確認できます。</li>
+    </ol>
+  </div>
+</section>
+
+<section class="page">
+  <div class="chapter">ご紹介</div>
+  <h2>画面の紹介</h2>
+
+  <div class="screen">
+    <h3>設定</h3>
+    <figure><img src="images/settings.png" alt="設定画面"></figure>
+    <ol class="points">
+      <li>メールの取り込み元、AI の接続先、自動で振り分ける基準、商品マスタなどを設定します。</li>
+      <li>AI を使わない場合は、決まった規則で判定します。<br>AI の接続先を設定すると、より柔軟に読み取れます。</li>
+    </ol>
+  </div>
+</section>
+
+<!-- 3. はじめかた -->
+<section class="page">
+  <div class="chapter">はじめかた</div>
+  <h2>はじめかた</h2>
+
+  <p class="note"><b>動作環境：</b>Windows 10 / 11（64 ビット版）。<br>インストールは不要で、.NET などを別に入れる必要もありません。<br>画面はパソコンに入っているブラウザ（Edge、Chrome など）で表示します。<br>Mac・スマートフォンには対応していません。</p>
+
+  <ol class="steps">
+    <li><b>ダウンロードする</b><br>Google Drive のページで zip ファイルをダウンロードします。<br>ブラウザや Google Drive が「ウイルス スキャンを実行できません」などの確認を表示した場合は、内容を確認のうえダウンロードを続けてください。</li>
+    <li><b>展開する</b><br>ダウンロードした zip ファイルを右クリックし、「すべて展開」を選びます。<br>zip のまま中のファイルを開くと、正しく動きません。<br>
+      <span class="small">展開する前に、zip ファイルを右クリック →「プロパティ」→「許可する」にチェック →「OK」とすると、次の手順の警告が出なくなる場合があります。</span></li>
+    <li><b>起動する</b><br>展開したフォルダの <b>OrderMail.exe</b> をダブルクリックします。<br>黒いウィンドウが開き、続けてブラウザで画面が開きます。<br>
+      初めて起動するとき、次のような警告が出ることがあります。<br><b>「詳細情報」を押し、表示された「実行」を押してください。</b>
+      <div class="smartscreen" style="margin-top:24px">
+        <div class="ss"><div class="lbl">① 最初の画面</div>
+          <div class="t">Windows によって PC が保護されました</div>
+          Microsoft Defender SmartScreen は認識されないアプリの起動を停止しました。このアプリを実行すると、PC に問題が起こる可能性があります。<br><br>
+          <span class="link">詳細情報</span>
+          <div class="btns"><span class="btn">実行しない</span></div>
+        </div>
+        <div class="ss"><div class="lbl">② 「詳細情報」を押した後</div>
+          <div class="t">Windows によって PC が保護されました</div>
+          Microsoft Defender SmartScreen は認識されないアプリの起動を停止しました。このアプリを実行すると、PC に問題が起こる可能性があります。<br>
+          アプリ: OrderMail.exe<br>発行元: 不明な発行元
+          <div class="btns"><span class="btn run">実行</span><span class="btn">実行しない</span></div>
+        </div>
+      </div>
+      <p class="small">画面は一例です。Windows のバージョンによって表示が異なります。<br>この警告は、発行元を証明する電子署名を付けていないアプリで表示されます。</p></li>
+  </ol>
+</section>
+
+<section class="page">
+  <div class="chapter">はじめかた</div>
+  <h2>はじめかた（続き）</h2>
+
+  <ol class="steps" style="counter-reset: s 3">
+    <li><b>試してみる</b><br>
+      最初に出る「デモアプリについて」を確認して「確認しました」を押します。<br>
+      「受信メール」の「取り込み・解析」を押すと、付属のサンプルメール 20 通を判定します。<br>
+      メールを開いて内容を確かめ、「発注一覧」で結果を見てください。<br>
+      <span class="small">サンプルのメール・会社名・人名・商品は、すべて架空のものです。</span></li>
+    <li><b>終了する</b><br>黒いウィンドウを閉じると終了します。<br>ブラウザの画面を閉じただけでは終了しません。</li>
+  </ol>
+
+  <h3>削除するとき</h3>
+  <p>黒いウィンドウを閉じてから、展開したフォルダごと削除してください。<br>
+  このアプリは、展開したフォルダの外にファイルを作らず、レジストリも使いません。</p>
+
+  <h3>うまく動かないとき</h3>
+  <ul>
+    <li><b>ブラウザが開かない：</b>ブラウザで http://localhost:5080 を開いてください。</li>
+    <li><b>黒いウィンドウがすぐに閉じる：</b>OrderMail がすでに起動しているか、他のアプリが同じ番号（ポート 5080）を使っています。<br>
+      起動中の OrderMail を閉じるか、アプリのフォルダの appsettings.json にある "Urls" を書き換えてください（例："http://localhost:5090"）。</li>
+    <li><b>画面が操作できなくなった：</b>黒いウィンドウが閉じていないか確認し、ブラウザの画面を再読み込みしてください。</li>
+  </ul>
+</section>
+
+<!-- 4. よくある質問 -->
+<section class="page">
+  <div class="chapter">よくある質問</div>
+  <h2>よくある質問</h2>
+  <dl class="qa">
+    <dt>起動時に警告が出ました。安全ですか？</dt>
+    <dd>この警告は、発行元を証明する電子署名を付けていないアプリで表示されるものです。<br>
+      署名には費用がかかるため、本アプリには付けていません。<br>
+      本アプリは、作者が公開している Google Drive のページからのみ配布しています。<br>
+      それ以外の場所から入手したファイルは使わないでください。</dd>
+
+    <dt>費用はかかりますか？</dt>
+    <dd>本アプリは無料です。<br>
+      AI を使わない方式なら、ほかに費用はかかりません。<br>
+      クラウドの AI サービスに接続する場合は、そのサービスの利用料金がかかることがあります（各サービスの規約に従います）。</dd>
+
+    <dt>AI がなくても使えますか？</dt>
+    <dd>使えます。<br>
+      初期設定は AI を使わない方式で、決まった規則で判定します。<br>
+      AI を接続すると、書き方がばらばらなメールもより柔軟に読み取れます。</dd>
+
+    <dt>データはどこに保存されますか？外部に送られることはありますか？</dt>
+    <dd>取り込んだメール・発注・設定は、アプリのフォルダの中の「data」フォルダに保存します。<br>
+      作者がこれらの情報を受け取ることはありません。<br>
+      ただし、設定で AI の接続先を指定すると、判定するメールの本文などがその接続先に送られます。<br>
+      送ってよい情報かどうかは、ご自身（社内の規則）でご判断ください。<br>
+      パソコンの中で動く AI（Ollama など）を指定した場合は、外部には送られません。</dd>
+
+    <dt>自分の会社のメールで使えますか？</dt>
+    <dd>次の 2 つの方法で取り込めます。
+      <ul>
+        <li>メールサーバーから取り込む（IMAP）：ユーザー名とパスワードでログインできるメールサーバーに対応しています。<br>
+          Gmail は「アプリ パスワード」の設定が必要です。<br>
+          Microsoft 365・Outlook.com など、パスワードでのログインを受け付けないサービスには、現在は対応していません。</li>
+        <li>保存したメールを取り込む：メールソフトで .eml 形式で保存したファイルを、指定したフォルダに置きます。</li>
+      </ul>
+      社内のメールを使う場合は、社内の規則に従ってください。</dd>
+
+    <dt>判定はどのくらい正確ですか？</dt>
+    <dd>メールの書き方や、使う AI によって変わります。<br>
+      誤りが含まれることがあるため、迷うものは「要確認」として人が確認する仕組みにしています。<br>
+      自動で振り分ける基準は、設定で厳しくできます。</dd>
+
+    <dt>Mac やスマートフォンで使えますか？</dt>
+    <dd>使えません。<br>Windows 10 / 11（64 ビット版）専用です。</dd>
+
+    <dt>パソコンを替えたいときは？</dt>
+    <dd>新しいパソコンで同じように展開し、元のパソコンの「data」フォルダをコピーしてください。<br>
+      API キーとメールのパスワードは Windows のユーザーごとに暗号化しているため、入力し直してください。</dd>
+  </dl>
+</section>
+
+<!-- 5. 参考：Microsoft 365 で作る場合 -->
+<section class="page">
+  <div class="chapter">参考</div>
+  <h2>参考：Microsoft 365 で同じ仕組みを作る場合</h2>
+  <p>Microsoft 365 を使っている組織では、Power Platform（Power Automate・AI Builder・Power Apps）と Teams を組み合わせて、同じような仕組みを作れます。<br>
+  構成の一例を示します。</p>
+
+  <div class="m365">
+    <div class="row">
+      <div class="box ext"><b>Outlook（Exchange Online）</b>共有メールボックスにメールが届く</div>
+      <div class="harrow">→</div>
+      <div class="box app"><b>Power Automate</b>メールが届くたびにフローを実行</div>
+      <div class="harrow">→</div>
+      <div class="box ai"><b>AI Builder のプロンプト</b>（または Azure OpenAI）<br>発注かどうかの判定と読み取り</div>
+    </div>
+    <div class="varrow">↓</div>
+    <div class="branch">
+      <div>
+        <div class="lbl">確かな判定</div>
+        <div class="box"><b>SharePoint リスト または Dataverse</b>発注データとして自動で登録</div>
+      </div>
+      <div>
+        <div class="lbl">迷う判定</div>
+        <div class="box human"><b>Teams に確認依頼を送る</b>担当者がカード上で修正・確定し、発注データに登録</div>
+      </div>
+    </div>
+    <div class="varrow">↓</div>
+    <div class="box"><b>Power Apps</b>発注の一覧と修正の画面（SharePoint リストの画面で代用することもできます）</div>
+  </div>
+
+  <h3>OrderMail との対応</h3>
+  <table class="compare">
+    <thead><tr><th></th><th>OrderMail</th><th>Microsoft 365 で作る場合</th></tr></thead>
+    <tr><th>処理のタイミング</th><td>担当者が画面を開いて「取り込み・解析」を押したとき<br>（一定間隔の自動取り込みも可）</td><td>メールが届くたびに自動で処理</td></tr>
+    <tr><th>判定・読み取り</th><td>設定した AI、または決まった規則</td><td>AI Builder のプロンプト、または Azure OpenAI</td></tr>
+    <tr><th>商品マスタとの照合</th><td>アプリの中の商品マスタを検索して AI に渡す</td><td>SharePoint リストや Dataverse の商品マスタをフローで検索してプロンプトに渡す</td></tr>
+    <tr><th>人の確認</th><td>ブラウザの「要確認」から確認・修正</td><td>Teams に届いた確認依頼から確認・修正</td></tr>
+    <tr><th>データの保存先</th><td>パソコンの中の data フォルダ</td><td>SharePoint リストまたは Dataverse（クラウド）</td></tr>
+    <tr><th>AI への指示の調整</th><td>設定画面で編集し、確定済みのメールで評価</td><td>AI Builder のプロンプトの編集画面で編集・テスト</td></tr>
+    <tr><th>必要なもの</th><td>Windows のパソコン</td><td>Microsoft 365 と Power Platform のライセンス<br>（AI Builder の利用量など、追加の契約が必要になる場合があります）</td></tr>
+  </table>
+
+  <h3>向いている場面</h3>
+  <ul>
+    <li><b>OrderMail：</b>手元のパソコンで小さく試したい場合。<br>メールを社外の AI に送れない場合は、パソコン内で動く AI と組み合わせられます。</li>
+    <li><b>Microsoft 365：</b>すでに Microsoft 365 を使っていて、受信後すぐに処理し、確認を Teams で複数の担当者と分担したい場合。</li>
+  </ul>
+  <p class="small">この構成は一例です。<br>機能の名前・提供内容・ライセンスは変わることがあるため、Microsoft の最新の情報をご確認ください。</p>
+</section>
+
+<!-- 6. 利用条件 -->
+<section class="page">
+  <div class="chapter">利用条件</div>
+  <h2>利用条件の要約</h2>
+  <p>ご利用の前に、同梱の <b>LICENSE.txt</b>（利用条件）をお読みください。<br>主な内容は次のとおりです。<br>正式な内容は LICENSE.txt の記載に従います。</p>
+  <table>
+    <tr><th>利用</th><td>個人・法人、営利・非営利を問わず、無償で利用できます。</td></tr>
+    <tr><th>再配布</th><td>作者の許諾なく、本アプリを第三者に配布することはできません（改変の有無を問いません）。<br>ダウンロードページへのリンクを伝えることは自由です。</td></tr>
+    <tr><th>改変など</th><td>本アプリの改変、改変したものの配布、販売・貸与はできません。</td></tr>
+    <tr><th>無保証</th><td>本アプリは現状のまま提供され、作者は一切の保証をしません。<br>判定や読み取りの結果には誤りが含まれることがあるため、確認のうえご利用ください。</td></tr>
+    <tr><th>責任の制限</th><td>本アプリの利用によって生じた損害について、作者は責任を負いません（作者の故意または重大な過失による場合を除きます）。</td></tr>
+    <tr><th>外部サービス</th><td>AI サービスやメールサーバーの利用には、それぞれの提供者の規約が適用されます。</td></tr>
+    <tr><th>外部部品</th><td>本アプリに含まれる外部の部品には、それぞれのライセンスが適用されます（同梱の THIRD-PARTY-NOTICES.txt）。</td></tr>
+  </table>
+</section>
+
+</body>
+</html>

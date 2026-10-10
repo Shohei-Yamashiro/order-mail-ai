@@ -166,6 +166,17 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 あわせてテストを実行し、テスト仕様書 `docs/test-spec.md` と、結果を含む報告書 `OrderMail-latest\test-report.md` を作ります。テスト仕様書の内容は、各テストに付けた `[Spec]` 属性（区分・項目名・確認内容）から作られます。
 テスト仕様書と報告書だけを作り直すときは、`dotnet run scripts/TestReport.cs -- . OrderMail-latest` を実行します。
 
+zip には次の利用者向けの文書も入ります。
+
+| zip 内のファイル | 元 |
+|---|---|
+| `README.txt` | `docs/README-distribution.txt` |
+| `LICENSE.txt`（利用条件） | `docs/distribution/LICENSE.txt` |
+| `THIRD-PARTY-NOTICES.txt`（外部部品のライセンス表記） | `docs/distribution` の見出しとライセンス本文に、NuGet パッケージ内の Bouncy Castle のライセンスと .NET / ASP.NET Core Runtime の表記を付けて作る |
+| `OrderMail-guide.pdf`（非エンジニア向けの紹介・使い方） | `docs/portfolio/guide.html` を `scripts/build-docs.ps1` が Microsoft Edge で PDF にする |
+
+案内 PDF だけを作り直すときは、`powershell -ExecutionPolicy Bypass -File scripts\build-docs.ps1` を実行します（`artifacts\OrderMail-guide.pdf`）。Edge がない環境では PDF を省きます。
+
 `setup-git.ps1` は、このクローンに次の 2 つを設定します。
 - `main` への直接プッシュを止める `pre-push` フック（`.githooks`）。変更はブランチを切り、PR からスカッシュマージします。
 - 自動生成の `docs/test-spec.md` がマージで競合したときに、手元側を自動で残す設定。マージ後に `dotnet run scripts/TestReport.cs -- .` で作り直します。
@@ -190,7 +201,10 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 | `tests/OrderMail.Tests` | xUnit のテスト（AI 接続は偽の HTTP サーバーで検証） |
 | `samples/mails` | デモ用の発注メール・発注以外のメール 20 通（`samples/labels.json` が正解ラベルと商品コード） |
 | `samples/products.csv` | デモ用の商品マスタ 38 件（色・サイズ違いの似た商品を含む） |
+| `docs/distribution` | 配布物に入れる利用条件・外部部品のライセンス表記の元 |
+| `docs/portfolio` | 案内 PDF の元（HTML と画面写真） |
 | `scripts/publish.ps1` | 配布用 zip の作成 |
+| `scripts/build-docs.ps1` | 案内 PDF の作成 |
 | `scripts/TestReport.cs` | テスト仕様書・テスト報告書の作成 |
 | `scripts/setup-git.ps1` | git の初期設定（`pre-push` フックと、生成ファイルのマージ設定） |
 | `.github/workflows` | CI の設定 |
