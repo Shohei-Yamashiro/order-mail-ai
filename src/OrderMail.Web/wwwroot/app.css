@@ -248,6 +248,13 @@ h1:focus {
     margin-bottom: 10px;
 }
 
+.settings .preset-hint {
+    margin-top: -4px;
+    padding: 6px 10px;
+    border-left: 3px solid var(--accent-fill-rest);
+    background: var(--neutral-layer-2);
+}
+
 .test-result {
     white-space: pre-wrap;
     font-family: Consolas, monospace;

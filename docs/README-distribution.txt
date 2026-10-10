@@ -14,7 +14,8 @@
 
 ■ AI の接続
   初期設定は AI を使わない「ルールベース」です。
-  「設定」画面で OpenAI 互換 API（Ollama・LM Studio・Gemini・OpenAI など）を指定すると AI で解析します。
+  「設定」画面で OpenAI 互換 API（Azure OpenAI・OpenAI・Gemini・Ollama・LM Studio など）を指定すると AI で解析します。
+  Azure OpenAI は、エンドポイントに https://<リソース名>.openai.azure.com/openai/v1、モデルにデプロイ名を入力します。
   「テスト解析」ボタンで接続を確認できます。
 
 ■ データ

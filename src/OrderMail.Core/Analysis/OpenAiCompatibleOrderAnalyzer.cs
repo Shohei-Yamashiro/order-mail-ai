@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using OrderMail.Core.Settings;
@@ -9,8 +8,9 @@ namespace OrderMail.Core.Analysis;
 public sealed class AiConnectionException(string message, Exception? inner = null) : Exception(message, inner);
 
 /// <summary>
-/// Calls any server that implements the OpenAI chat completions API (Ollama, LM Studio, Gemini, OpenAI, ...).
+/// Calls any server that implements the OpenAI chat completions API (Ollama, LM Studio, Gemini, OpenAI, Azure OpenAI, ...).
 /// Structured output support differs by server, so the response format falls back step by step on HTTP 400.
+/// Reasoning models that only accept the default temperature are retried without it.
 /// </summary>
 public sealed class OpenAiCompatibleOrderAnalyzer(HttpClient http, AiSettings settings) : IOrderAnalyzer
 {
@@ -22,6 +22,7 @@ public sealed class OpenAiCompatibleOrderAnalyzer(HttpClient http, AiSettings se
     }
 
     private FormatMode _mode = settings.UseJsonSchema ? FormatMode.JsonSchema : FormatMode.JsonObject;
+    private bool _sendTemperature = true;
 
     public string Name => $"AI（{settings.Model}）";
 
@@ -61,16 +62,15 @@ public sealed class OpenAiCompatibleOrderAnalyzer(HttpClient http, AiSettings se
             {
                 ["model"] = settings.Model,
                 ["messages"] = messages,
-                ["temperature"] = 0,
             };
+            if (_sendTemperature) body["temperature"] = 0;
             if (_mode == FormatMode.JsonSchema)
                 body["response_format"] = new { type = "json_schema", json_schema = new { name = "order_extraction", strict = true, schema = ExtractionJson.Schema() } };
             else if (_mode == FormatMode.JsonObject)
                 body["response_format"] = new { type = "json_object" };
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, ChatUrl(settings.Endpoint)) { Content = JsonContent.Create(body) };
-            if (!string.IsNullOrWhiteSpace(settings.ApiKey))
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey.Trim());
+            using var request = new HttpRequestMessage(HttpMethod.Post, AiEndpoint.Url(settings.Endpoint, "chat/completions")) { Content = JsonContent.Create(body) };
+            AiEndpoint.Authorize(request, settings);
 
             HttpResponseMessage response;
             try
@@ -89,10 +89,18 @@ public sealed class OpenAiCompatibleOrderAnalyzer(HttpClient http, AiSettings se
             using (response)
             {
                 var text = await response.Content.ReadAsStringAsync(ct);
-                if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity && _mode != FormatMode.None)
+                if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.UnprocessableEntity)
                 {
-                    _mode--;
-                    continue;
+                    if (_sendTemperature && text.Contains("temperature", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _sendTemperature = false;
+                        continue;
+                    }
+                    if (_mode != FormatMode.None)
+                    {
+                        _mode--;
+                        continue;
+                    }
                 }
                 if (!response.IsSuccessStatusCode)
                     throw new AiConnectionException($"AI の接続先がエラーを返しました（HTTP {(int)response.StatusCode}）: {Truncate(text, 300)}");
@@ -109,8 +117,6 @@ public sealed class OpenAiCompatibleOrderAnalyzer(HttpClient http, AiSettings se
             }
         }
     }
-
-    public static Uri ChatUrl(string endpoint) => new(endpoint.Trim().TrimEnd('/') + "/chat/completions");
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
 }

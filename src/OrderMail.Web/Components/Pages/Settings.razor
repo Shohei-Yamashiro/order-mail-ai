@@ -65,13 +65,17 @@
 
         @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
         {
-            <p class="sub">Ollama・LM Studio・Gemini・OpenAI など、OpenAI 互換の API に接続できます。プリセットで入力欄を埋めてから調整してください。</p>
+            <p class="sub">Azure OpenAI・OpenAI・Gemini・Ollama・LM Studio など、OpenAI 互換の API に接続できます。プリセットで入力欄を埋めてから調整してください。</p>
             <div class="presets">
                 @foreach (var p in Presets)
                 {
                     <FluentButton Appearance="Appearance.Outline" OnClick="@(() => ApplyPreset(p))">@p.Name</FluentButton>
                 }
             </div>
+            @if (_presetHint is not null)
+            {
+                <p class="sub preset-hint">@_presetHint</p>
+            }
             <div class="row">
                 <div class="field wide"><FluentTextField Label="エンドポイント" @bind-Value="_s.Ai.Endpoint" /></div>
                 <div class="field"><FluentTextField Label="モデル" @bind-Value="_s.Ai.Model" /></div>
@@ -198,15 +202,19 @@
 </div>
 
 @code {
-    private sealed record Preset(string Name, string Endpoint, string Model);
+    private sealed record Preset(string Name, string Endpoint, string Model, string? Hint = null);
 
     private static readonly Preset[] Presets =
     [
-        new("Ollama", "http://localhost:11434/v1", "qwen2.5:7b"),
-        new("LM Studio", "http://localhost:1234/v1", ""),
-        new("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+        new("Azure OpenAI", "https://YOUR-RESOURCE.openai.azure.com/openai/v1", "gpt-4.1-mini",
+            "エンドポイントの YOUR-RESOURCE を Azure OpenAI のリソース名に、モデルをデプロイ名に置き換えてください。API キーは Azure ポータルの「キーとエンドポイント」にあります（api-key ヘッダーで送ります）。"),
         new("OpenAI", "https://api.openai.com/v1", "gpt-4.1-mini"),
+        new("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+        new("Ollama", "http://localhost:11434/v1", "qwen2.5:7b", "API キーは空欄のままで使えます。事前に ollama pull でモデルを取得してください。"),
+        new("LM Studio", "http://localhost:1234/v1", "", "LM Studio で読み込んだモデル名を入力してください。API キーは空欄で使えます。"),
     ];
+
+    private string? _presetHint;
 
     private static readonly MailInput TestMail = new(
         "発注のお願い",
@@ -363,6 +371,7 @@
     {
         _s.Ai.Endpoint = p.Endpoint;
         _s.Ai.Model = p.Model;
+        _presetHint = p.Hint;
     }
 
     private void Save()
