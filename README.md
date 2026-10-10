@@ -156,6 +156,7 @@ flowchart LR
 必要なもの：[.NET 10 SDK](https://dotnet.microsoft.com/)
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-git.ps1   # 最初に 1 回（git の設定）
 dotnet run --project src/OrderMail.Web     # http://localhost:5080
 dotnet test                                # テスト
 powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\OrderMail-win-x64.zip を作成
@@ -164,6 +165,10 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 `publish.ps1` は確認用に `OrderMail-latest\OrderMail.exe` も更新します（`data` フォルダは残します）。
 あわせてテストを実行し、テスト仕様書 `docs/test-spec.md` と、結果を含む報告書 `OrderMail-latest\test-report.md` を作ります。テスト仕様書の内容は、各テストに付けた `[Spec]` 属性（区分・項目名・確認内容）から作られます。
 テスト仕様書と報告書だけを作り直すときは、`dotnet run scripts/TestReport.cs -- . OrderMail-latest` を実行します。
+
+`setup-git.ps1` は、このクローンに次の 2 つを設定します。
+- `main` への直接プッシュを止める `pre-push` フック（`.githooks`）。変更はブランチを切り、PR からスカッシュマージします。
+- 自動生成の `docs/test-spec.md` がマージで競合したときに、手元側を自動で残す設定。マージ後に `dotnet run scripts/TestReport.cs -- .` で作り直します。
 
 ### CI（GitHub Actions）
 
@@ -187,6 +192,7 @@ powershell -ExecutionPolicy Bypass -File scripts\publish.ps1   # artifacts\Order
 | `samples/products.csv` | デモ用の商品マスタ 38 件（色・サイズ違いの似た商品を含む） |
 | `scripts/publish.ps1` | 配布用 zip の作成 |
 | `scripts/TestReport.cs` | テスト仕様書・テスト報告書の作成 |
+| `scripts/setup-git.ps1` | git の初期設定（`pre-push` フックと、生成ファイルのマージ設定） |
 | `.github/workflows` | CI の設定 |
 
 ## 技術スタック
