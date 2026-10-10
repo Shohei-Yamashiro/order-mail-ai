@@ -60,7 +60,7 @@
             {
                 <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
                               Disabled="@(SelectedVisible.Count == 0 || Processor.IsRunning)" OnClick="ReanalyzeSelectedAsync">選択したメールを再解析</FluentButton>
-                <span class="sub">@(SelectedVisible.Count == 0 ? "左端のチェックで選ぶと、今の設定でまとめて解析し直せます。人が確認したメールは、結果を変えずに解析履歴だけ追加します。" : $"{SelectedVisible.Count} 件を選択中")</span>
+                <span class="sub">@(SelectedVisible.Count == 0 ? "チェックしたメールを今の設定で解析し直します（人が確認したメールは結果を変えず、履歴だけ追加）" : $"{SelectedVisible.Count} 件を選択中")</span>
                 @if (SelectedVisible.Count > 0)
                 {
                     <FluentButton Appearance="Appearance.Stealth" OnClick="@(() => _selected.Clear())">選択を解除</FluentButton>
@@ -68,7 +68,7 @@
             }
         </div>
         <FluentDataGrid Items="@Visible" TGridItem="MailRow" ShowHover="true" Class="clickable-grid"
-                        GridTemplateColumns="44px 110px 160px minmax(140px, 1fr) minmax(200px, 2fr) 90px 60px"
+                        GridTemplateColumns="40px 104px 146px minmax(90px, 1fr) minmax(140px, 2fr) 70px 48px"
                         OnRowClick="@((FluentDataGridRow<MailRow> row) => Open(row.Item))">
             <TemplateColumn>
                 <HeaderCellItemTemplate>
