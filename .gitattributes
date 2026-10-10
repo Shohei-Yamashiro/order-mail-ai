@@ -1,0 +1,10 @@
+# Store text files with LF in the repository; the working tree follows each machine's setting (CRLF on Windows).
+* text=auto
+
+# Windows PowerShell 5.1 reads scripts more reliably with CRLF.
+*.ps1 text eol=crlf
+
+*.png binary
+*.ico binary
+*.zip binary
+*.db binary
