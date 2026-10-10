@@ -49,6 +49,39 @@ public class OpenAiCompatibleAnalyzerTests
     }
 
     [Fact]
+    [Spec(SpecCategories.Ai, "Azure OpenAI には api-key ヘッダーで送る", "接続先が Azure OpenAI（*.openai.azure.com）なら、API キーを api-key ヘッダーで送り、Bearer 認証は付けない。モデル名（デプロイ名）はそのまま送る。")]
+    public async Task Sends_api_key_header_to_azure_openai()
+    {
+        var handler = new FakeHandler(_ => Reply(HttpStatusCode.OK, Completion(OrderJson)));
+        var analyzer = Create(handler, new AiSettings { Endpoint = "https://contoso.openai.azure.com/openai/v1", Model = "my-deployment", ApiKey = "azure-key" });
+
+        await analyzer.AnalyzeAsync(Mail, [], CancellationToken.None);
+
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal("https://contoso.openai.azure.com/openai/v1/chat/completions", request.Url);
+        Assert.Equal("azure-key", request.ApiKey);
+        Assert.Null(request.Authorization);
+        Assert.Equal("my-deployment", request.Body["model"]!.GetValue<string>());
+    }
+
+    [Fact]
+    [Spec(SpecCategories.Ai, "temperature を受け付けないモデルでは指定を外す", "temperature の指定が HTTP 400 で拒否されたら、temperature だけを外して送り直す（JSON スキーマ指定は残す）。")]
+    public async Task Retries_without_temperature_for_models_that_reject_it()
+    {
+        var handler = new FakeHandler(body => body["temperature"] is not null
+            ? Reply(HttpStatusCode.BadRequest, """{"error": {"message": "Unsupported value: 'temperature' does not support 0 with this model."}}""")
+            : Reply(HttpStatusCode.OK, Completion(OrderJson)));
+        var analyzer = Create(handler, new AiSettings { Model = "reasoning-model" });
+
+        var result = await analyzer.AnalyzeAsync(Mail, [], CancellationToken.None);
+
+        Assert.True(result.IsOrder);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Null(handler.Requests[1].Body["temperature"]);
+        Assert.Equal("json_schema", handler.Requests[1].Body["response_format"]!["type"]!.GetValue<string>());
+    }
+
+    [Fact]
     [Spec(SpecCategories.Ai, "JSON でない応答には 1 回だけ出し直しを頼む", "1 回目の応答が JSON でないとき、読めなかった理由を伝えて出し直させ、2 回目の応答で解析に成功する。")]
     public async Task Retries_once_when_output_is_not_json()
     {
@@ -171,7 +204,7 @@ public class OpenAiCompatibleAnalyzerTests
     private static HttpResponseMessage Reply(HttpStatusCode status, string json) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-    private sealed record CapturedRequest(string Url, string? Authorization, JsonNode Body);
+    private sealed record CapturedRequest(string Url, string? Authorization, string? ApiKey, JsonNode Body);
 
     private sealed class FakeHandler(Func<JsonNode, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -180,7 +213,8 @@ public class OpenAiCompatibleAnalyzerTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
-            Requests.Add(new CapturedRequest(request.RequestUri!.ToString(), request.Headers.Authorization?.ToString(), body));
+            var apiKey = request.Headers.TryGetValues("api-key", out var values) ? values.Single() : null;
+            Requests.Add(new CapturedRequest(request.RequestUri!.ToString(), request.Headers.Authorization?.ToString(), apiKey, body));
             return respond(body);
         }
     }

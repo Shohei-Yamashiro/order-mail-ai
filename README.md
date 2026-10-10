@@ -4,7 +4,7 @@
 AI の判定に自信がないものは「要確認」に回し、担当者がブラウザ画面で確認・修正して確定します。
 
 - **zip を解凍して exe を起動するだけで動作**（インストール不要・.NET 不要・DB サーバー不要）
-- **AI は接続設定式**：Ollama / LM Studio などのローカル LLM（無料）や Gemini / OpenAI など、OpenAI 互換 API ならどれでも利用可能
+- **AI は接続設定式**：契約済みの Azure OpenAI / OpenAI / Gemini から、Ollama などのローカル LLM まで、OpenAI 互換 API ならどれでも利用可能（[接続先の例](#接続先の例)）
 - **AI なしでも動作**：キーワードと書式パターンによるルールベース判定を内蔵（サンプル 20 通で正解率 100%）
 
 ## 画面
@@ -43,6 +43,8 @@ flowchart LR
 ### AI 接続の工夫
 
 - 接続先ごとに構造化出力の対応が違うため、`json_schema` → `json_object` → 指定なし の順に自動で切り替え
+- `temperature` の指定を受け付けないモデル（推論系のモデルなど）では、指定を外して送り直す
+- Azure OpenAI には API キーを `api-key` ヘッダーで、それ以外には `Authorization: Bearer` で送る
 - 出力が JSON として読めないときは、エラー内容を伝えて 1 回だけ再生成させる
 - 数量が `"50本"` のような文字列、自信度が 0〜100 のような揺れも吸収してから保存
 - 解析履歴（どの解析器で、何秒かかり、どう判定したか）をメールごとに保存し、接続先の比較に使える
@@ -54,7 +56,6 @@ flowchart LR
 
 設定画面の「AI への指示（プロンプト）」で、判定と抽出のルールを書き換えられます。出力形式（JSON のキー）と、当社名・受信日のカレンダーはアプリが自動で付け足すので、ルールを書き換えても解析結果を読み取れなくなることはありません。
 「確認済みメールで評価」を押すと、担当者が確定したメールを画面上の設定（保存前でも可）で解析し直し、判定・明細・会社名・納期の一致率と、自動で確定できる割合を前回の結果と並べて表示します。結果は保存されず、メールの状態も変わりません。
-- API キーと IMAP パスワードは Windows の DPAPI でユーザーごとに暗号化して保存
 
 ## 使い方
 
@@ -63,10 +64,24 @@ flowchart LR
 1. `OrderMail-win-x64.zip` を解凍して `OrderMail.exe` を起動（ブラウザが開きます）
 2. 「受信メール」で「取り込み・解析」を押すと、同梱のサンプルメール 20 通を取り込みます
 
-### AI をつなぐ例（無料）
+### 接続先の例
 
-- **Ollama**：[Ollama](https://ollama.com/) を入れて `ollama pull qwen2.5:7b` → 設定画面で「Ollama」プリセット
-- **Gemini**：[Google AI Studio](https://aistudio.google.com/) で API キーを発行 → 「Gemini」プリセットにキーを入力
+設定画面の「AI の接続先」で「OpenAI 互換 API」を選び、プリセットで入力欄を埋めてから、お使いの環境に合わせて書き換えます。
+
+| 接続先 | エンドポイント | モデル | API キー |
+|---|---|---|---|
+| Azure OpenAI | `https://<リソース名>.openai.azure.com/openai/v1` | Azure で作成した**デプロイ名** | Azure ポータルの「キーとエンドポイント」 |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4.1-mini` など | [OpenAI Platform](https://platform.openai.com/) で発行 |
+| Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` など | [Google AI Studio](https://aistudio.google.com/) で発行 |
+| Ollama（ローカル） | `http://localhost:11434/v1` | `qwen2.5:7b` など（事前に `ollama pull`） | 不要 |
+| LM Studio（ローカル） | `http://localhost:1234/v1` | LM Studio で読み込んだモデル名 | 不要 |
+
+- Azure OpenAI は v1 API（`/openai/v1`）を使うので、`api-version` の指定は不要です。リソースのエンドポイントが `*.cognitiveservices.azure.com` や `*.services.ai.azure.com` の場合も、末尾に `/openai/v1` を付けて指定します。
+- 「テスト解析」で、保存前に接続と読み取りを確かめられます。
+- 推論系のモデルなど、`temperature` や JSON スキーマ指定に対応していないモデルでも、アプリが自動で送り方を切り替えます。
+- 社外にメールを送れない環境では、Ollama などのローカル LLM を使えます（精度は大きなモデルに劣ります）。
+- API キーと IMAP パスワードは、Windows の DPAPI でユーザーごとに暗号化して保存します。
+- 動作確認：Ollama（qwen2.5:7b）は実機で確認済み。その他の接続先は、送信内容（URL・認証ヘッダー・本文）を自動テストで確認しています。
 
 ## 開発
 
