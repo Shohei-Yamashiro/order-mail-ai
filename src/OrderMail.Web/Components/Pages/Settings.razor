@@ -6,6 +6,7 @@
 @inject MailSourceFactory Sources
 @inject PromptEvaluator Evaluator
 @inject ReviewService Review
+@inject DataResetService Resetter
 @inject MailProcessor Processor
 @inject ProductCatalogService Catalog
 @inject IDialogService Dialogs
@@ -14,15 +15,29 @@
 
 <PageTitle>設定</PageTitle>
 
-<div class="page-head">
+<div class="page-head settings-head">
     <h2>設定</h2>
     <span class="spacer"></span>
+    <span class="sub">変更は「保存」を押すと反映されます</span>
     <FluentButton Appearance="Appearance.Accent" IconStart="@(new Icons.Regular.Size20.Save())" OnClick="Save">保存</FluentButton>
 </div>
 
+<div class="settings-layout">
+<nav class="settings-toc">
+    @foreach (var (id, title, items) in Toc)
+    {
+        <a href="@($"settings#{id}")" class="toc-main">@title</a>
+        @foreach (var item in items)
+        {
+            <span class="toc-sub">@item</span>
+        }
+    }
+</nav>
+
 <div class="settings">
-    <section class="panel">
-        <h3>メールの取得元</h3>
+    <section class="panel" id="mail">
+        <h3>メールの取り込み</h3>
+        <h4>取得元</h4>
         <FluentRadioGroup TValue="MailSourceKind" @bind-Value="_s.Mail.Kind" Orientation="Orientation.Horizontal">
             <FluentRadio Value="MailSourceKind.EmlFolder">.eml フォルダ</FluentRadio>
             <FluentRadio Value="MailSourceKind.Imap">IMAP（メールサーバー）</FluentRadio>
@@ -51,14 +66,16 @@
             <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.PlugConnected())" Disabled="_testing" OnClick="TestImapAsync">接続テスト</FluentButton>
         }
 
-        <div class="row" style="margin-top: 12px">
+        <h4>自動取り込み</h4>
+        <div class="row">
             <div class="field" style="align-self: end"><FluentSwitch Label="自動で取り込む" @bind-Value="_s.Mail.AutoPoll" /></div>
             <div class="field"><FluentNumberField TValue="int" Label="間隔（分）" @bind-Value="_s.Mail.PollIntervalMinutes" Min="1" Disabled="!_s.Mail.AutoPoll" /></div>
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="ai">
         <h3>AI の接続先</h3>
+        <h4>使う AI</h4>
         <FluentRadioGroup TValue="AiProvider" @bind-Value="_s.Ai.Provider" Orientation="Orientation.Horizontal">
             <FluentRadio Value="AiProvider.RuleBased">使わない（ルールベース）</FluentRadio>
             <FluentRadio Value="AiProvider.OpenAiCompatible">OpenAI 互換 API</FluentRadio>
@@ -66,6 +83,7 @@
 
         @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
         {
+            <h4>接続先とモデル</h4>
             <p class="sub">Azure OpenAI・OpenAI・Gemini・Ollama・LM Studio など、OpenAI 互換の API に接続できます。プリセットで入力欄を埋めてから調整してください。</p>
             <div class="presets">
                 @foreach (var p in Presets)
@@ -90,6 +108,8 @@
             <p class="sub">キーワードと書式のパターンで判定します。AI を用意しなくても動作確認できますが、自由な文面には弱いです。</p>
         }
 
+        <h4>動作確認</h4>
+        <p class="sub">保存前の設定で、例文のメールを 1 通解析します。</p>
         <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.PlugConnected())" Disabled="_testing" OnClick="TestAiAsync">テスト解析</FluentButton>
         @if (_testing)
         {
@@ -103,15 +123,19 @@
 
     @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
     {
-        <section class="panel">
+        <section class="panel" id="prompt">
             <h3>AI への指示（プロンプト）</h3>
-            <p class="sub">判定と抽出のルールを書き換えられます。出力形式（JSON のキー）と、当社名・受信日のカレンダーはアプリが自動で付け足します。変更したら下の「確認済みメールで評価」で効果を確かめてから保存してください。</p>
+            <h4>当社名と手本</h4>
             <div class="row">
                 <div class="field"><FluentTextField Label="当社名（宛名を発注元と取り違えないように AI に伝えます）" Placeholder="例: サンプル商事" @bind-Value="_s.Ai.OwnCompanyName" /></div>
                 <div class="field"><FluentNumberField TValue="int" Label="手本にする確認済みメールの数（0 で使わない）" @bind-Value="_s.Ai.ExampleCount" Min="0" Max="10" /></div>
             </div>
+            <p class="sub">手本：担当者が確定したメールのうち、差出人が同じものや文面が似ているものを、正しい答えと一緒に AI に見せます。確定するほど、取引先ごとの書き方に合った読み取りになります。</p>
+
+            <h4>判定・抽出のルール</h4>
+            <p class="sub">出力形式（JSON のキー）と、当社名・受信日のカレンダーはアプリが自動で付け足します。変更したら「振り分けと評価」の「確認済みメールで評価」で効果を確かめてから保存してください。</p>
             <div class="field">
-                <FluentTextArea Label="判定・抽出のルール" Rows="22" Resize="TextAreaResize.Vertical" Class="prompt-editor" @bind-Value="_instructions" />
+                <FluentTextArea Rows="22" Resize="TextAreaResize.Vertical" Class="prompt-editor" @bind-Value="_instructions" />
             </div>
             <div class="actions">
                 <FluentButton Appearance="Appearance.Outline" Disabled="IsDefaultInstructions" OnClick="ResetInstructions">既定に戻す</FluentButton>
@@ -122,13 +146,13 @@
             {
                 <div class="test-result prompt-preview">@_preview</div>
             }
-            <p class="sub">手本：担当者が確定したメールのうち、差出人が同じものや文面が似ているものを、正しい答えと一緒に AI に見せます。確定するほど、取引先ごとの書き方に合った読み取りになります。</p>
         </section>
     }
 
-    <section class="panel">
+    <section class="panel" id="catalog">
         <h3>商品マスタ（RAG）</h3>
         <p class="sub">メールの品名を自社の商品マスタと照合し、明細に商品コードを付けます。AI を使うときは、本文から検索した候補をメールと一緒に渡し、その中から選ばせます（RAG）。AI の答えのコードはマスタで確かめ、メールに単価がなければマスタの単価を入れます。AI を使わないときも、品名が 1 つの商品に決まれば照合します。</p>
+        <h4>マスタの取り込み</h4>
         <div class="row">
             <div class="field" style="align-self: end"><FluentSwitch Label="商品マスタを使う" @bind-Value="_s.Catalog.Enabled" /></div>
             <div class="field wide">
@@ -143,6 +167,7 @@
 
         @if (_s.Ai.Provider == AiProvider.OpenAiCompatible)
         {
+            <h4>AI に渡す候補と意味検索</h4>
             <div class="row">
                 <div class="field"><FluentNumberField TValue="int" Label="AI に渡す候補の数" @bind-Value="_s.Catalog.CandidateCount" Min="1" Max="20" /></div>
                 <div class="field"><FluentTextField Label="埋め込みモデル（空欄ならキーワード検索のみ）" Placeholder="例: text-embedding-3-small" @bind-Value="_s.Ai.EmbeddingModel" /></div>
@@ -159,8 +184,9 @@
             </div>
         }
 
+        <h4>試しに検索</h4>
         <div class="row">
-            <div class="field wide"><FluentTextField Label="試しに検索（メールの一文など）" Placeholder="例: 無線マウス 黒を25個" Immediate="true" @bind-Value="_searchText" /></div>
+            <div class="field wide"><FluentTextField Label="メールの一文など" Placeholder="例: 無線マウス 黒を25個" Immediate="true" @bind-Value="_searchText" /></div>
             <div class="field" style="align-self: end">
                 <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Search())" Disabled="@(_catalogBusy || string.IsNullOrWhiteSpace(_searchText))" OnClick="SearchCatalogAsync">検索</FluentButton>
             </div>
@@ -190,8 +216,15 @@
         }
     </section>
 
-    <section class="panel">
-        <h3>評価</h3>
+    <section class="panel" id="judge">
+        <h3>振り分けと評価</h3>
+        <h4>自動登録</h4>
+        <p class="sub">AI の自信度がこの値以上なら、人の確認なしで「発注」または「発注以外」に振り分けます。下回るものは「要確認」になります。</p>
+        <div class="row">
+            <div class="field"><FluentNumberField TValue="double" Label="自信度のしきい値（0〜1）" @bind-Value="_s.AutoRegisterThreshold" Min="0" Max="1" Step="0.05" /></div>
+        </div>
+
+        <h4>確認済みメールで評価</h4>
         <p class="sub">担当者が確定したメール（新しい順に @MaxEvalMails 件まで）を、この画面の設定（保存前でも可）で解析し直して、確定した内容と比べます。結果は保存されず、メールの状態も変わりません。手本は評価するメール自身を除いて選びます。</p>
         <div class="actions" style="margin-top: 0">
             <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.DataBarVertical())" Disabled="@(_evaluating || _testing)" OnClick="EvaluateAsync">確認済みメールで評価</FluentButton>
@@ -245,25 +278,41 @@
         }
     </section>
 
-    <section class="panel">
-        <h3>自動登録</h3>
-        <p class="sub">AI の自信度がこの値以上なら、人の確認なしで「発注」または「発注以外」に振り分けます。下回るものは「要確認」になります。</p>
-        <div class="row">
-            <div class="field"><FluentNumberField TValue="double" Label="自信度のしきい値（0〜1）" @bind-Value="_s.AutoRegisterThreshold" Min="0" Max="1" Step="0.05" /></div>
-        </div>
-    </section>
-
-    <section class="panel debug-panel">
+    <section class="panel debug-panel" id="debug">
         <h3>デバッグ</h3>
-        <p class="sub">人の確認（「発注として登録」「発注ではない」）をすべて取り消し、確認前の状態に戻します。人が確定した発注は削除され、対象のメールは「未解析」に戻ります。「受信メール」で「取り込み・解析」を押すと、今の設定で解析し直します。人が確認していない自動登録の発注と、解析履歴は残ります。</p>
-        <div class="actions" style="margin-top: 0">
-            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowUndo())"
-                          Disabled="@(_reviewedCount == 0 || _evaluating || Processor.IsRunning)" OnClick="ClearReviewsAsync">人の確認をすべて取り消す</FluentButton>
-            <span class="sub" style="align-self: center">確認済み：@(_reviewedCount?.ToString() ?? "…") 件</span>
-        </div>
+        <h4>データのクリア</h4>
+        <p class="sub">データを消して、同じメールで最初から試し直すための機能です。どれも元に戻せません。設定と商品マスタは消えません。</p>
+        <table class="debug-table">
+            <tr>
+                <td>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowUndo())"
+                                  Disabled="@(_counts?.Reviewed is null or 0 || Busy)" OnClick="ClearReviewsAsync">人の確認をすべて取り消す</FluentButton>
+                </td>
+                <td class="sub">確認済み @(_counts?.Reviewed.ToString() ?? "…") 件</td>
+                <td class="sub">人の確認（「発注として登録」「発注ではない」）を取り消します。人が確定した発注は削除し、対象のメールは「未解析」に戻します。自動登録の発注と解析履歴は残ります。</td>
+            </tr>
+            <tr>
+                <td>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Delete())"
+                                  Disabled="@(_counts?.Orders is null or 0 || Busy)" OnClick="ClearOrdersAsync">発注一覧をクリア</FluentButton>
+                </td>
+                <td class="sub">発注 @(_counts?.Orders.ToString() ?? "…") 件</td>
+                <td class="sub">自動登録・人が確定した発注をすべて削除します。発注だったメールは人の確認も取り消して「未解析」に戻します。メールと解析履歴は残ります。</td>
+            </tr>
+            <tr>
+                <td>
+                    <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.Delete())"
+                                  Disabled="@(_counts?.Mails is null or 0 || Busy)" OnClick="ClearMailsAsync">読み込んだメールをすべて削除</FluentButton>
+                </td>
+                <td class="sub">メール @(_counts?.Mails.ToString() ?? "…") 件</td>
+                <td class="sub">取り込んだメールと、その解析履歴・発注・人の確認をすべて削除します。メールフォルダやサーバーのメールは消えないので、次の「取り込み・解析」で取り込み直します。</td>
+            </tr>
+        </table>
+        <p class="sub">消した後は「受信メール」で「取り込み・解析」を押すと、今の設定で解析し直します。</p>
     </section>
 
     <p class="sub">API キーと IMAP パスワードは Windows のユーザーごとに暗号化して保存します。</p>
+</div>
 </div>
 
 @code {
@@ -280,6 +329,20 @@
     ];
 
     private string? _presetHint;
+
+    private IEnumerable<(string Id, string Title, string[] Items)> Toc
+    {
+        get
+        {
+            var ai = _s.Ai.Provider == AiProvider.OpenAiCompatible;
+            yield return ("mail", "メールの取り込み", ["取得元", "自動取り込み"]);
+            yield return ("ai", "AI の接続先", ai ? ["使う AI", "接続先とモデル", "動作確認"] : ["使う AI", "動作確認"]);
+            if (ai) yield return ("prompt", "AI への指示", ["当社名と手本", "判定・抽出のルール"]);
+            yield return ("catalog", "商品マスタ（RAG）", ai ? ["マスタの取り込み", "AI に渡す候補と意味検索", "試しに検索"] : ["マスタの取り込み", "試しに検索"]);
+            yield return ("judge", "振り分けと評価", ["自動登録", "確認済みメールで評価"]);
+            yield return ("debug", "デバッグ", ["データのクリア"]);
+        }
+    }
 
     private static readonly MailInput TestMail = new(
         "発注のお願い",
@@ -301,7 +364,8 @@
     private EvaluationReport? _previousReport;
     private CancellationTokenSource? _evalCts;
 
-    private int? _reviewedCount;
+    private DataCounts? _counts;
+    private bool _clearing;
 
     private bool _catalogBusy;
     private string? _catalogProgress;
@@ -313,7 +377,7 @@
     {
         _s = Store.Current;
         _instructions = OrderPrompt.Instructions(_s.Ai);
-        _reviewedCount = await Review.CountReviewedAsync();
+        _counts = await Resetter.CountsAsync();
         await RefreshCatalogStatsAsync();
     }
 
@@ -386,19 +450,42 @@
         }
     }
 
-    private async Task ClearReviewsAsync()
+    private bool Busy => _evaluating || _clearing || Processor.IsRunning;
+
+    private async Task ClearReviewsAsync() => await ClearAsync(
+        $"人が確認した {_counts?.Reviewed} 件のメールを確認前に戻し、人が確定した発注を削除します。元に戻せません。よろしいですか？",
+        "人の確認をすべて取り消す", "取り消す",
+        async () => $"{await Review.ClearAllReviewsAsync()} 件の確認を取り消しました。");
+
+    private async Task ClearOrdersAsync() => await ClearAsync(
+        $"発注 {_counts?.Orders} 件をすべて削除し、発注だったメールを「未解析」に戻します。人が確定した発注も消えます。元に戻せません。よろしいですか？",
+        "発注一覧をクリア", "削除する",
+        async () => $"発注 {await Resetter.ClearOrdersAsync()} 件を削除しました。");
+
+    private async Task ClearMailsAsync() => await ClearAsync(
+        $"読み込んだメール {_counts?.Mails} 件と、その解析履歴・発注・人の確認をすべて削除します。元に戻せません。よろしいですか？",
+        "読み込んだメールをすべて削除", "削除する",
+        async () => $"メール {await Resetter.ClearMailsAsync()} 件を削除しました。");
+
+    private async Task ClearAsync(string message, string title, string ok, Func<Task<string>> clear)
     {
-        var dialog = await Dialogs.ShowConfirmationAsync(
-            $"人が確認した {_reviewedCount} 件のメールを確認前に戻し、人が確定した発注を削除します。元に戻せません。よろしいですか？",
-            "取り消す", "キャンセル", "人の確認をすべて取り消す");
+        var dialog = await Dialogs.ShowConfirmationAsync(message, ok, "キャンセル", title);
         var result = await dialog.Result;
         if (result.Cancelled) return;
 
-        var count = await Review.ClearAllReviewsAsync();
-        _reviewedCount = await Review.CountReviewedAsync();
-        _report = null;
-        _previousReport = null;
-        Toast.ShowSuccess($"{count} 件の確認を取り消しました。「受信メール」で「取り込み・解析」を押すと解析し直します。");
+        _clearing = true;
+        try
+        {
+            var done = await clear();
+            _report = null;
+            _previousReport = null;
+            Toast.ShowSuccess(done + "「受信メール」で「取り込み・解析」を押すと解析し直します。");
+        }
+        finally
+        {
+            _clearing = false;
+            _counts = await Resetter.CountsAsync();
+        }
     }
 
     public void Dispose() => _evalCts?.Cancel();

@@ -2,6 +2,7 @@
 @using System.Diagnostics
 @inject FeedbackService Feedback
 @inject FineTuningExporter Exporter
+@inject LocalFineTuningKit LocalKit
 @inject SettingsStore Store
 @inject ReviewService Review
 @inject IToastService Toast
@@ -20,7 +21,7 @@
             <li><strong>確定を続ける</strong>：メール詳細で確定した内容は、似たメールを解析するときの手本として AI に渡されます（再学習は不要）。</li>
             <li><strong>修正の傾向を見る</strong>：下の「担当者の修正の集計」で、AI の答えを担当者がどの項目でよく直しているかを確かめます。</li>
             <li><strong>指示を直して測る</strong>：「設定」の「AI への指示」を直し、「確認済みメールで評価」で一致率が上がるかを確かめてから保存します。</li>
-            <li><strong>ファインチューニング</strong>：確定が数百件たまったら、下の「学習データの書き出し」で作ったファイルでモデルを追加学習し、できたモデル名を「設定」に入れて評価で比べます。</li>
+            <li><strong>ファインチューニング</strong>：確定が数百件たまったら、下の「学習データの書き出し」で作った一式でモデルを追加学習し、できたモデル名を「設定」に入れて評価で比べます。ローカル LLM（Ollama）は手元の GPU で、クラウドのモデルは各サービスで学習します。</li>
         </ol>
     </section>
 
@@ -83,26 +84,43 @@
 
     <section class="panel">
         <h3>学習データの書き出し（ファインチューニング用）</h3>
-        <p class="sub">確定したメールを、OpenAI・Azure OpenAI のファインチューニングに使える形式（チャット形式の JSONL）で書き出します。1 行に「アプリが送る指示文・メール・確定した答え」が入るので、学習したモデルはそのままこのアプリで使えます。オープンなモデル（Ollama などで動かすもの）の追加学習ツールの多くも、この形式を読み込めます。</p>
+        <p class="sub">確定したメールを、1 行に「アプリが送る指示文・メール・確定した答え」が入る形式（チャット形式の JSONL）で書き出します。学習したモデルは、モデル名を「設定」に入れればそのままこのアプリで使えます。</p>
+        <FluentRadioGroup TValue="string" Label="学習するモデル" @bind-Value="_target" Orientation="Orientation.Horizontal">
+            <FluentRadio Value="@Local">ローカル LLM（Ollama）</FluentRadio>
+            <FluentRadio Value="@Cloud">クラウド（OpenAI・Azure OpenAI）</FluentRadio>
+        </FluentRadioGroup>
+        @if (_target == Local)
+        {
+            <p class="sub">いま設定しているモデル（@_ollamaModel）を、手元の GPU で追加学習（LoRA）するための一式を書き出します：学習データ、学習スクリプト（Python・Unsloth）、Ollama に登録するための Modelfile、手順書（README.md）。学習はアプリの外で行い、できたモデルを <code>ollama create</code> で登録します。</p>
+            <div class="sub">学習に使う元のモデル：@(_baseModel?.HuggingFaceModel ?? "（このモデルは対応表にありません。書き出したスクリプトを書き換えて使います）")</div>
+            <div class="row">
+                <div class="field"><FluentTextField Label="登録するモデル名" @bind-Value="_outputModel" /></div>
+                <div class="field"><FluentNumberField TValue="int" Label="学習の回数（エポック）" @bind-Value="_epochs" Min="1" Max="10" /></div>
+            </div>
+        }
+        else
+        {
+            <p class="sub">OpenAI・Azure OpenAI のファインチューニングにそのまま渡せるファイルを書き出します。学習データにはメール本文が含まれるので、社外のサービスに送る前に社内の取り扱いルールを確認してください。</p>
+        }
         <FluentRadioGroup TValue="int" Label="検証用に分ける件数" @bind-Value="_validationEvery" Orientation="Orientation.Horizontal">
             <FluentRadio Value="0">分けない</FluentRadio>
             <FluentRadio Value="5">5 件に 1 件</FluentRadio>
             <FluentRadio Value="10">10 件に 1 件</FluentRadio>
         </FluentRadioGroup>
         <div class="actions" style="margin-top: 0">
-            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowDownload())" Disabled="@(_exporting || _reviewedCount == 0)" OnClick="ExportAsync">書き出す</FluentButton>
+            <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowDownload())" Disabled="@(_exporting || _reviewedCount == 0)" OnClick="ExportAsync">@(_target == Local ? "学習キットを書き出す" : "書き出す")</FluentButton>
             <FluentButton Appearance="Appearance.Stealth" IconStart="@(new Icons.Regular.Size16.FolderOpen())" OnClick="OpenFolder">フォルダを開く</FluentButton>
             <span class="sub" style="align-self: center">確認済み：@(_reviewedCount?.ToString() ?? "…") 件</span>
         </div>
-        @if (_export is { } x)
+        @if (_result is not null)
         {
-            <div class="test-result">学習用 @x.TrainCount 件：@x.TrainPath@(x.ValidationPath is null ? "" : $"\n検証用 {x.ValidationCount} 件：{x.ValidationPath}")</div>
-            @foreach (var w in x.Warnings)
+            <div class="test-result">@_result</div>
+            @foreach (var w in _warnings)
             {
                 <FluentMessageBar Intent="MessageIntent.Warning" AllowDismiss="false">@w</FluentMessageBar>
             }
         }
-        <p class="sub">指示文は今保存されている「AI への指示」と当社名で作ります。学習データにはメール本文が含まれるので、社外のサービスに送る前に社内の取り扱いルールを確認してください。</p>
+        <p class="sub">指示文は今保存されている「AI への指示」と当社名で作ります。指示文を変えたら、書き出し直して学習し直してください。</p>
     </section>
 </div>
 
@@ -115,7 +133,17 @@
     private int? _reviewedCount;
     private int _validationEvery = 5;
     private bool _exporting;
-    private FineTuningExport? _export;
+    private string? _result;
+    private IReadOnlyList<string> _warnings = [];
+    private string? _exportedFolder;
+
+    private const string Local = "local";
+    private const string Cloud = "cloud";
+    private string _target = Local;
+    private string _outputModel = "ordermail-ft";
+    private int _epochs = 3;
+    private string _ollamaModel = "";
+    private LocalBaseModel? _baseModel;
 
     protected override async Task OnInitializedAsync()
     {
@@ -126,6 +154,9 @@
     private async Task LoadAsync()
     {
         _threshold = Store.Current.AutoRegisterThreshold;
+        _ollamaModel = Store.Current.Ai.Model;
+        _baseModel = LocalBaseModel.Find(_ollamaModel);
+        if (Store.Current.Ai.Provider != AiProvider.OpenAiCompatible || IsCloudEndpoint(Store.Current.Ai.Endpoint)) _target = Cloud;
         _report = await Feedback.BuildAsync(_threshold);
         _reviewedCount = await Review.CountReviewedAsync();
     }
@@ -143,8 +174,24 @@
         _exporting = true;
         try
         {
-            _export = await Exporter.ExportAsync(Store.Current.Ai, _validationEvery);
-            Toast.ShowSuccess($"学習用 {_export.TrainCount} 件を書き出しました。");
+            if (_target == Local)
+            {
+                var kit = await LocalKit.ExportAsync(Store.Current.Ai, _validationEvery, _outputModel, _epochs);
+                _exportedFolder = kit.Directory;
+                _warnings = kit.Warnings;
+                _result = $"学習用 {kit.TrainCount} 件・検証用 {kit.ValidationCount} 件の学習キット：{kit.Directory}\n"
+                    + "README.md の手順で学習し、ollama create で登録してください。"
+                    + (kit.TemplateFromOllama ? "\nOllama から元のモデルのテンプレートを取得しました。" : "");
+                Toast.ShowSuccess("学習キットを書き出しました。");
+            }
+            else
+            {
+                var export = await Exporter.ExportAsync(Store.Current.Ai, _validationEvery);
+                _exportedFolder = Exporter.ExportDirectory;
+                _warnings = export.Warnings;
+                _result = $"学習用 {export.TrainCount} 件：{export.TrainPath}" + (export.ValidationPath is null ? "" : $"\n検証用 {export.ValidationCount} 件：{export.ValidationPath}");
+                Toast.ShowSuccess($"学習用 {export.TrainCount} 件を書き出しました。");
+            }
         }
         catch (Exception e)
         {
@@ -158,7 +205,11 @@
 
     private void OpenFolder()
     {
-        Directory.CreateDirectory(Exporter.ExportDirectory);
-        Process.Start(new ProcessStartInfo(Exporter.ExportDirectory) { UseShellExecute = true });
+        var folder = _exportedFolder ?? Exporter.ExportDirectory;
+        Directory.CreateDirectory(folder);
+        Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true });
     }
+
+    private static bool IsCloudEndpoint(string endpoint) =>
+        Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && !uri.IsLoopback;
 }
