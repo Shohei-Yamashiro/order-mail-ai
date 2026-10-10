@@ -359,6 +359,30 @@ public sealed class ProcessingTests : IDisposable
     }
 
     [Fact]
+    [Spec(SpecCategories.Feedback, "ローカル LLM の学習キットを書き出す", "確定したメールの学習データ（学習用・検証用）、学習スクリプト、Modelfile のひな形、手順書を 1 つのフォルダに書き出す。件数が少ないと警告し、Ollama に接続できなければ標準のテンプレートを使うと知らせる。")]
+    public async Task Local_fine_tuning_kit_writes_data_script_modelfile_and_steps()
+    {
+        await _services.GetRequiredService<MailProcessor>().RunAsync();
+        var review = _services.GetRequiredService<ReviewService>();
+        await review.ConfirmOrderAsync(await SampleIdAsync("01"), new OrderDraft { CustomerCompany = "あおぞら工業株式会社", Items = [new() { ProductName = "A4コピー用紙", Quantity = 10, Unit = "箱" }] });
+        await review.MarkNotOrderAsync(await SampleIdAsync("13"));
+        var offline = new OllamaClient(new HttpClient(new LocalFineTuningTests.FakeHandler(_ => throw new HttpRequestException("refused"))));
+        var kit = new LocalFineTuningKit(_services.GetRequiredService<FineTuningExporter>(), offline);
+
+        var export = await kit.ExportAsync(new AiSettings { Endpoint = "http://localhost:11434/v1", Model = "qwen2.5:7b" }, 2, "my-model", 2);
+
+        Assert.Equal(1, export.TrainCount);
+        Assert.Equal(1, export.ValidationCount);
+        Assert.Equal("unsloth/Qwen2.5-7B-Instruct", export.BaseModel!.HuggingFaceModel);
+        Assert.False(export.TemplateFromOllama);
+        Assert.Contains(export.Warnings, w => w.Contains("100 件以上"));
+        Assert.Contains(export.Warnings, w => w.Contains("標準のテンプレート"));
+        Assert.Equal(["Modelfile.in", "README.md", "train.jsonl", "train.py", "validation.jsonl"], Directory.GetFiles(export.Directory).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        Assert.Contains("ollama create my-model -f Modelfile", File.ReadAllText(Path.Combine(export.Directory, "README.md")));
+        Assert.Contains("EPOCHS = 2", File.ReadAllText(Path.Combine(export.Directory, "train.py")));
+    }
+
+    [Fact]
     [Spec(SpecCategories.Processing, "人の確認をすべて取り消せる（デバッグ用）", "確認済みのメールを未解析に戻して人が確定した発注を削除し、自動登録の発注と解析履歴は残す。次の実行で解析し直す。")]
     public async Task Clearing_reviews_resets_human_decisions_and_reanalyzes_them()
     {

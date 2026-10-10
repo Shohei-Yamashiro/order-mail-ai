@@ -36,6 +36,8 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IDbContextFactory<OrderMailDbContext>>(),
             sp.GetRequiredService<TimeProvider>(),
             Path.Combine(dataDirectory, "exports")));
+        services.AddSingleton(new OllamaClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }));
+        services.AddSingleton<LocalFineTuningKit>();
         return services;
     }
 }
