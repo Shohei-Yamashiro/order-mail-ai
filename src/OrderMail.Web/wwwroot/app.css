@@ -71,6 +71,11 @@ h1:focus {
     flex-wrap: wrap;
 }
 
+.mail-search {
+    margin-left: auto;
+    width: 220px;
+}
+
 .badge {
     display: inline-block;
     min-width: 64px;
