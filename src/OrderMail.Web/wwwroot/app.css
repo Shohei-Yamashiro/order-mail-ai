@@ -71,12 +71,9 @@ h1:focus {
     flex-wrap: wrap;
 }
 
-.filters .spacer {
-    flex: 1;
-}
-
 .mail-search {
-    width: 320px;
+    margin-left: auto;
+    width: 220px;
 }
 
 .selection-bar {

@@ -35,8 +35,8 @@
             @label（@Count(key)）
         </FluentButton>
     }
-    <span class="spacer"></span>
-    <FluentSearch Placeholder="件名・差出人・本文・会社名・品名で検索" Immediate="true" ImmediateDelay="300" Class="mail-search"
+    <FluentSearch Placeholder="キーワードで検索" Title="件名・差出人・本文と、発注の会社名・品名から探します。空白で区切るとすべてを含むメールに絞ります。"
+                  Immediate="true" ImmediateDelay="300" Class="mail-search"
                   @bind-Value="_query" @bind-Value:after="SearchAsync" />
 </div>
 
