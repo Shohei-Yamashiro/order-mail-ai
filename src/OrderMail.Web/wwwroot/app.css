@@ -79,6 +79,14 @@ h1:focus {
     width: 320px;
 }
 
+.selection-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    min-height: 32px;
+}
+
 .badge {
     display: inline-block;
     min-width: 64px;
