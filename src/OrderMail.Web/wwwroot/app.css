@@ -84,8 +84,14 @@ h1:focus {
     min-height: 32px;
 }
 
-.selection-bar fluent-button {
+.selection-bar fluent-button,
+.selection-bar .select-all {
     flex-shrink: 0;
+}
+
+.selection-bar .select-all {
+    margin-left: 14px;
+    margin-right: 6px;
 }
 
 .badge {

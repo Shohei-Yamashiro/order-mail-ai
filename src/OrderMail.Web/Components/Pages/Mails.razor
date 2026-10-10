@@ -58,6 +58,7 @@
             }
             else
             {
+                <FluentCheckbox Class="select-all" Label="すべて選択" Title="表示中のメールをすべて選択" Value="@AllVisibleSelected" ValueChanged="@((bool on) => SelectAllVisible(on))" />
                 <FluentButton Appearance="Appearance.Outline" IconStart="@(new Icons.Regular.Size16.ArrowClockwise())"
                               Disabled="@(SelectedVisible.Count == 0 || Processor.IsRunning)" OnClick="ReanalyzeSelectedAsync">選択したメールを再解析</FluentButton>
                 <span class="sub">@(SelectedVisible.Count == 0 ? "チェックしたメールを今の設定で解析し直します（人が確認したメールは結果を変えず、履歴だけ追加）" : $"{SelectedVisible.Count} 件を選択中")</span>
@@ -71,10 +72,6 @@
                         GridTemplateColumns="40px 104px 146px minmax(90px, 1fr) minmax(140px, 2fr) 70px 48px"
                         OnRowClick="@((FluentDataGridRow<MailRow> row) => Open(row.Item))">
             <TemplateColumn>
-                <HeaderCellItemTemplate>
-                    <FluentCheckbox Value="@AllVisibleSelected" ThreeStateOrderUncheckToIntermediate="false" Title="表示中のメールをすべて選択"
-                                    ValueChanged="@((bool on) => SelectAllVisible(on))" />
-                </HeaderCellItemTemplate>
                 <ChildContent>
                     <div @onclick:stopPropagation="true">
                         <FluentCheckbox Value="@_selected.Contains(context.Id)" ValueChanged="@((bool on) => Select(context.Id, on))" />
