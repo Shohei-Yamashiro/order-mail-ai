@@ -1,6 +1,7 @@
-# Builds the zip for distribution: artifacts\OrderMail-win-x64.zip
+﻿# Builds the zip for distribution: artifacts\OrderMail-win-x64.zip
 # and refreshes OrderMail-latest\ at the repository root for manual checking, with the test report.
 # The exe is self-contained, so the target PC needs no .NET installation.
+# Keep this file UTF-8 with BOM: Windows PowerShell 5.1 reads it as ANSI otherwise and breaks the Japanese file name.
 param(
     [string]$Runtime = "win-x64",
     # Only build the zip (used by CI): skip OrderMail-latest and the test report.
@@ -46,7 +47,7 @@ $notices += Section "Appendix: ASP.NET Core Runtime third-party notices" (Get-Pa
 [IO.File]::WriteAllText((Join-Path $out "THIRD-PARTY-NOTICES.txt"), ($notices -replace "(?<!`r)`n", "`r`n") + "`r`n", (New-Object Text.UTF8Encoding $true))
 
 $guide = & (Join-Path $PSScriptRoot "build-docs.ps1")
-if ($guide) { Copy-Item $guide (Join-Path $out "OrderMail-guide.pdf") }
+if ($guide) { Copy-Item $guide (Join-Path $out "発注メールAI仕分け（OrderMail）のご紹介.pdf") }
 
 Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip
 
