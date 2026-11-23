@@ -199,7 +199,8 @@ zip には次の利用者向けの文書も入ります。
 | きっかけ | 内容 |
 |---|---|
 | `main` への push・PR | ビルドとテスト。報告書を成果物 `test-report` に保存。`docs/test-spec.md` が古いと失敗 |
-| `v*` タグの push・手動実行 | 上に加えて、配布物を成果物 `OrderMail-win-x64` に保存 |
+| `v*` タグの push | 上に加えて、配布用 zip を作り [GitHub Release](https://github.com/Shohei-Yamashiro/order-mail-ai/releases) に掲載する（成果物 `OrderMail-win-x64` にも保存） |
+| 手動実行（`workflow_dispatch`） | 配布用 zip を成果物に保存（Release は作らない） |
 
 `docs/test-spec.md` が古いと言われたら、`dotnet run scripts/TestReport.cs -- .` を実行してコミットします。
 
