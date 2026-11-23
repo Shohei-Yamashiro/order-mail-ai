@@ -53,6 +53,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -67,5 +69,23 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: OrderMail-win-x64
-          path: artifacts/OrderMail/
+          path: |
+            artifacts/OrderMail-win-x64.zip
+            artifacts/OrderMail/
           retention-days: 14
+
+      - name: GitHub Release を作成
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/OrderMail-win-x64.zip
+          fail_on_unmatched_files: true
+          body: |
+            発注メール AI 仕分け（OrderMail）の配布用 zip です。
+
+            - zip を展開して `OrderMail.exe` を起動してください（zip のまま実行しないでください）
+            - 案内 PDF「発注メールAI仕分け（OrderMail）のご紹介.pdf」と利用条件（`LICENSE.txt`）が同梱されています
+            - 発行元の電子署名がないため、Windows の SmartScreen 警告が出ることがあります
+            - ポートフォリオ用のデモです。無保証です。サポート義務は負いません
+
+            ソースコードは [MIT License](https://github.com/Shohei-Yamashiro/order-mail-ai/blob/main/LICENSE) です。配布 zip の利用条件は同梱の `LICENSE.txt` を参照してください。
